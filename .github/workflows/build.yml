@@ -18,6 +18,9 @@ env:
   LLVM_MINGW_VERSION: "20261006"
   LLVM_MINGW_SHA256: "317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a"
   WIX_VERSION: "5.0.2"
+  # The runner's host is MSVC, and newer rustup refuses a host tuple inside
+  # rust-toolchain.toml: name the same toolchain here, which takes precedence.
+  RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-gnullvm
 
 jobs:
   build:
@@ -28,10 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain (rust-toolchain.toml)
+      - name: Rust toolchain
         run: |
-          rustup toolchain install
-          rustup show active-toolchain
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --force-non-host --profile minimal --component clippy
+          rustc --version
 
       - name: llvm-mingw
         run: |
