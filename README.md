@@ -8,12 +8,14 @@ la bandeja y responde a atajos globales.
 Descarga el instalador y ábrelo:
 
 - Siempre la última versión:
-  [ScreenShotCM.msi](https://github.com/cmonroyp/ScreenShotCM/releases/latest/download/ScreenShotCM.msi)
-- Una versión concreta: en [Releases](https://github.com/cmonroyp/ScreenShotCM/releases),
-  cada etiqueta (`v0.2.2`, …) lleva su `ScreenShotCM-<versión>.msi` y su SHA-256.
+  [ScreenShotCM.msi](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi),
+  desde el sitio público <https://cmonroyp.github.io/screenshotcm-web/>.
+- Una versión concreta: en [Releases](https://github.com/cmonroyp/screenshotcm-web/releases)
+  del repositorio del sitio, cada etiqueta (`v0.3.0`, …) lleva su
+  `ScreenShotCM-<versión>.msi` y su SHA-256.
 
-El repositorio es privado: la descarga pide iniciar sesión en GitHub con una
-cuenta que tenga acceso. Se
+Este repositorio es privado; el instalador se publica en el del sitio, que es
+público. Se
 instala para tu usuario, sin pedir administrador, en
 `%LOCALAPPDATA%\Programs\ScreenShotCM`; deja el agente en la bandeja y
 arrancando con Windows. Una versión nueva se instala encima de la anterior:
@@ -60,12 +62,12 @@ cualquier imagen en el editor.
 
 ## Medidas
 
-| | ScreenShotCM 0.2.2 |
+| | ScreenShotCM 0.3.0 |
 |---|---|
-| Instalador | 420 KB |
+| Instalador | 432 KB |
 | Programa | un solo `.exe`, sin DLL propias |
-| Memoria privada en reposo | 1,7 MB |
-| Hilos en reposo | 4 |
+| Memoria privada en reposo | 1,8 MB |
+| Hilos en reposo | 2 |
 
 Medido con el agente instalado y en reposo en la bandeja (`Get-Process`,
 2026-10-13). Las ventanas dibujan con Direct2D por software (WARP): uno por

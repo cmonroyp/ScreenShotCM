@@ -1,0 +1,141 @@
+# Ficha de la Microsoft Store — borrador
+
+Texto para Partner Center → la aplicación → *Store listings*, en los dos
+idiomas que declara el paquete (es-ES y en-US). Los límites entre paréntesis
+son los de Partner Center.
+
+- Política de privacidad (URL obligatoria):
+  <https://cmonroyp.github.io/screenshotcm-web/privacy.html>
+- Sitio web: <https://cmonroyp.github.io/screenshotcm-web/>
+- Contacto de soporte: <https://github.com/cmonroyp/screenshotcm-web/issues>
+- Categoría: *Productividad*. Precio: gratis.
+- Capturas de pantalla: `assets/img/es/*` y `assets/img/en/*` del repositorio
+  del sitio (editor, fondo, captura de área, miniatura, fijado, ajustes); la
+  Store pide al menos una de 1366 × 768 o mayor.
+- *runFullTrust* (capacidad restringida): Partner Center pide justificarla. Texto
+  propuesto: «Aplicación de escritorio Win32 que captura la pantalla, registra
+  atajos de teclado globales y vive en el área de notificación.» /
+  "Win32 desktop app that captures the screen, registers global keyboard
+  shortcuts and lives in the notification area."
+
+---
+
+## Español (es-ES)
+
+**Nombre**: ScreenShotCM
+
+**Descripción breve** (hasta 1000 caracteres; la Store muestra el principio):
+
+> Captura, anota y comparte en un segundo. Un agente diminuto en la bandeja de
+> Windows: pulsa Impr Pant, elige un área y la captura ya está en tu
+> portapapeles, lista para anotar.
+
+**Descripción** (hasta 10 000 caracteres):
+
+> ScreenShotCM es una herramienta de capturas de pantalla rápida y ligera para
+> Windows 10 y 11. Arranca con Windows, espera en la bandeja y responde a tus
+> atajos de teclado.
+>
+> CAPTURAR
+> • Un área, una ventana, la pantalla completa o la misma área otra vez.
+> • La pantalla se congela mientras seleccionas, con lupa, cruz y medidas.
+> • Temporizador para capturar menús y estados que desaparecen.
+>
+> ANOTAR
+> • El editor se abre al capturar: flechas rectas o curvas, rectángulos,
+>   elipses, líneas, texto editable, contadores numerados, foco, lápiz y
+>   resaltador.
+> • Pixelado o desenfoque para ocultar datos sensibles.
+> • Recorte, deshacer y rehacer, zoom.
+> • Fondos con degradados, margen, esquinas redondeadas y sombra.
+>
+> COMPARTIR
+> • Cada captura va al portapapeles y aparece en una miniatura: cópiala,
+>   guárdala o arrástrala directamente a otra aplicación.
+> • Historial del último mes.
+> • Fija una captura sobre todas las ventanas como referencia.
+>
+> LIGERO Y PRIVADO
+> • Menos de 2 MB de memoria en reposo y un único ejecutable.
+> • No se conecta a internet: sin cuentas, sin telemetría y sin publicidad.
+> • Atajos configurables. En español e inglés.
+
+**Funciones destacadas** (hasta 20, de 200 caracteres):
+
+1. Captura de área, ventana, pantalla completa y área anterior
+2. Pantalla congelada con lupa, cruz y medidas
+3. Editor con flechas curvas, texto, contadores y pixelado
+4. Fondos con degradado, margen, redondeo y sombra
+5. Miniatura con copiar, guardar y arrastrar a cualquier aplicación
+6. Capturas fijadas sobre todas las ventanas
+7. Atajos de teclado configurables
+8. Menos de 2 MB de memoria, sin conexión a internet
+
+**Palabras clave** (hasta 7): captura de pantalla, recorte, anotar, Impr Pant,
+portapapeles, editor de imágenes, productividad
+
+**Novedades de esta versión**:
+
+> Ahora en español e inglés. Flechas curvas, edición de texto con cursor y
+> selección, y atajos configurables.
+
+---
+
+## English (en-US)
+
+**Name**: ScreenShotCM
+
+**Short description**:
+
+> Capture, annotate and share in a second. A tiny agent in the Windows tray:
+> press Print Screen, pick an area, and the capture is already on your
+> clipboard, ready to annotate.
+
+**Description**:
+
+> ScreenShotCM is a fast, lightweight screenshot tool for Windows 10 and 11.
+> It starts with Windows, waits in the tray and answers your keyboard
+> shortcuts.
+>
+> CAPTURE
+> • An area, a window, the full screen, or the same area again.
+> • The screen freezes while you select, with a magnifier, crosshair and size.
+> • Self-timer for menus and states that vanish.
+>
+> ANNOTATE
+> • The editor opens as you capture: straight or curved arrows, rectangles,
+>   ellipses, lines, editable text, numbered counters, spotlight, pen and
+>   highlighter.
+> • Pixelate or blur to hide sensitive data.
+> • Crop, undo and redo, zoom.
+> • Backgrounds with gradients, padding, rounded corners and a shadow.
+>
+> SHARE
+> • Every capture goes to the clipboard and shows up as a thumbnail: copy it,
+>   save it, or drag it straight into another app.
+> • Last month's history.
+> • Pin a capture above every window as a reference.
+>
+> LIGHT AND PRIVATE
+> • Under 2 MB of memory at rest and a single executable.
+> • Never connects to the internet: no accounts, no telemetry, no ads.
+> • Configurable shortcuts. In English and Spanish.
+
+**Product features**:
+
+1. Capture an area, a window, the full screen or the previous area
+2. Frozen screen with magnifier, crosshair and size
+3. Editor with curved arrows, text, counters and pixelate
+4. Backgrounds with gradient, padding, rounding and shadow
+5. Thumbnail with copy, save and drag into any app
+6. Captures pinned above every window
+7. Configurable keyboard shortcuts
+8. Under 2 MB of memory, no internet connection
+
+**Search terms**: screenshot, snipping, annotate, print screen, clipboard,
+image editor, productivity
+
+**What's new in this version**:
+
+> Now in English and Spanish. Curved arrows, text editing with a caret and
+> selection, and configurable shortcuts.
