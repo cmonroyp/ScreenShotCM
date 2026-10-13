@@ -1,0 +1,5 @@
+# Host and target are both gnullvm, so build scripts and proc macros link
+# with the same llvm-mingw as the program (see .cargo/config.toml).
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnullvm"
+components = ["clippy", "rustfmt"]

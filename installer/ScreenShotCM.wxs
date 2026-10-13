@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ScreenShotCM, per-user: no elevation, installed under %LOCALAPPDATA%\Programs.
+  The agent starts with Windows and lives in the notification area; the
+  installer starts it when it finishes. An upgrade first asks the running
+  agent to quit, so no file is in use when it is replaced.
+  Built by installer/build.ps1 with WiX 5.0.2 (MS-RL).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="ScreenShotCM"
+           Manufacturer="ScreenShotCM"
+           Version="$(var.Version)"
+           UpgradeCode="CEC4A52D-102D-4BC3-9428-11AD576D8349"
+           Scope="perUser"
+           Compressed="yes"
+           Language="3082"
+           Codepage="65001">
+    <SummaryInformation Description="ScreenShotCM — capturas y anotación para Windows" />
+
+    <!-- A rebuilt MSI of the same version replaces the installed one too:
+         without this, two 0.2.0 entries stood side by side (seen 2026-10-13). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="Ya está instalada una versión más reciente de ScreenShotCM." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.Assets)\screenshotcm.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/cmonroyp/ScreenShotCM" />
+
+    <!-- %LOCALAPPDATA%\Programs\ScreenShotCM, where Windows puts per-user
+         programs. ProgramFiles6432Folder does not redirect there on its own
+         (error 1303, C:\Program Files, without elevation). -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+      <Directory Id="INSTALLFOLDER" Name="ScreenShotCM">
+        <Component Id="Agent" Guid="2E6F0B57-6C4A-4C8E-9C3B-6A2B7D9E5F11">
+          <File Id="AgentExe" Source="$(var.Payload)\screenshotcm.exe" />
+          <File Id="Licences" Source="$(var.Payload)\THIRD_PARTY_LICENSES.md" />
+          <RegistryValue Root="HKCU" Key="Software\ScreenShotCM" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+          <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+        </Component>
+
+        <!-- Start with Windows, as the tray agent it is. -->
+        <Component Id="Autostart" Guid="7C1D2A44-3B9E-4F07-8E25-0D5C6A1F9B33">
+          <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ScreenShotCM" Type="string" Value="&quot;[INSTALLFOLDER]screenshotcm.exe&quot;" KeyPath="yes" />
+        </Component>
+
+        <!-- screenshotcm://capture-area and the other verbs. -->
+        <Component Id="UrlScheme" Guid="A9E3C0D1-5F62-4B48-9A17-3E8D2C4B6F70">
+          <RegistryValue Root="HKCU" Key="Software\Classes\screenshotcm" Type="string" Value="URL:ScreenShotCM" KeyPath="yes" />
+          <RegistryValue Root="HKCU" Key="Software\Classes\screenshotcm" Name="URL Protocol" Type="string" Value="" />
+          <RegistryValue Root="HKCU" Key="Software\Classes\screenshotcm\DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]screenshotcm.exe&quot;,0" />
+          <RegistryValue Root="HKCU" Key="Software\Classes\screenshotcm\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]screenshotcm.exe&quot; &quot;%1&quot;" />
+        </Component>
+      </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu" Guid="4B8F6E2A-1C3D-4E5F-9A0B-7C6D5E4F3A21">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="ScreenShotCM"
+                  Description="Capturas de pantalla y anotación"
+                  Target="[INSTALLFOLDER]screenshotcm.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\ScreenShotCM" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="ScreenShotCM">
+      <ComponentRef Id="Agent" />
+      <ComponentRef Id="Autostart" />
+      <ComponentRef Id="UrlScheme" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+
+    <!-- A running agent holds its executable: ask it to quit before files
+         are checked for use. It quits within milliseconds; nothing is lost. -->
+    <CustomAction Id="StopRunningAgent"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]screenshotcm.exe&quot; --quit"
+                  Execute="immediate"
+                  Return="ignore" />
+
+    <!-- And start the new one, in the user's session, without waiting. -->
+    <CustomAction Id="StartAgent"
+                  FileRef="AgentExe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopRunningAgent" Before="InstallValidate" Condition="Installed OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="StartAgent" After="InstallFinalize" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

@@ -1,0 +1,131 @@
+//! ScreenShotCM: a resident agent in the notification area. One instance per
+//! user session; a second launch hands its command to the first and leaves.
+
+#![windows_subsystem = "windows"]
+// Pixel loops index several buffers by the same channel; Win32 drawing calls
+// take many plain arguments. Both read better as they are.
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+
+mod agent;
+mod annot;
+mod autostart;
+mod background;
+mod capture;
+mod clipboard;
+mod commands;
+mod dragdrop;
+mod editor;
+mod flow;
+mod gfx;
+mod history;
+mod historywin;
+mod hotkeys;
+mod icon;
+mod icons;
+mod image;
+mod layered;
+mod log;
+mod overlay;
+mod paths;
+mod pin;
+mod quick;
+mod render;
+mod settings;
+mod settingswin;
+mod theme;
+mod tray;
+mod util;
+
+use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, LPARAM, WPARAM};
+use windows::Win32::System::DataExchange::COPYDATASTRUCT;
+use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_COPYDATA,
+};
+use windows::core::{PCWSTR, w};
+
+use crate::commands::Request;
+
+/// The marker `WM_COPYDATA` carries for a forwarded request.
+pub const COPYDATA_REQUEST: usize = 0x5343_4D31; // "SCM1"
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Maintenance verb for the installer build: write the icon file.
+    if args.first().map(String::as_str) == Some("--export-icon") {
+        unsafe {
+            // WIC encodes the 256-pixel PNG entry.
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
+        }
+        let ok = args
+            .get(1)
+            .is_some_and(|p| std::fs::write(p, icon::ico_file()).is_ok());
+        std::process::exit(if ok { 0 } else { 1 });
+    }
+
+    let request = commands::parse_args(&args);
+
+    // Physical pixels everywhere: a capture must match the screen exactly on
+    // every monitor, whatever its scaling.
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
+    // The mutex lives as long as the process; its handle is never closed.
+    let _mutex = unsafe { CreateMutexW(None, false, w!("Local\\ScreenShotCM.Agent")) };
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        forward(&request);
+        return;
+    }
+    // "Quit" with no agent running has nothing to stop. Starting one only to
+    // stop it would, during an upgrade, open the old executable while the
+    // installer replaces it (seen in the 0.1.0 → 0.2.0 install log).
+    if request == Request::Run(commands::Command::Quit) {
+        return;
+    }
+
+    log::init(paths::log_dir());
+    log::info(&format!(
+        "start {} pid {}",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id()
+    ));
+    let code = agent::run(request);
+    log::info("exit");
+    std::process::exit(code);
+}
+
+/// Hands the request to the running agent. A plain relaunch (no verb) has
+/// nothing to hand over: the agent is already in the tray.
+fn forward(request: &Request) {
+    let text = commands::encode(request);
+    if text.is_empty() {
+        return;
+    }
+    let Ok(hwnd) = (unsafe { FindWindowW(agent::CLASS, PCWSTR::null()) }) else {
+        return;
+    };
+    let data = COPYDATASTRUCT {
+        dwData: COPYDATA_REQUEST,
+        cbData: text.len() as u32,
+        lpData: text.as_ptr() as *mut _,
+    };
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            WM_COPYDATA,
+            WPARAM(0),
+            LPARAM(&data as *const _ as isize),
+            SMTO_ABORTIFHUNG,
+            5000,
+            None,
+        );
+    }
+}
