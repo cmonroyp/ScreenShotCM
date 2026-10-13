@@ -98,7 +98,11 @@ fn with<R>(f: impl FnOnce(&mut Overlay) -> R) -> Option<R> {
 /// overlay is gone, with the selection or `None` when it was cancelled.
 pub fn open(mode: Mode, magnifier: bool, crosshair: bool, done: Done) -> Result<(), String> {
     if is_open() {
-        return Err("ya hay una selección abierta".into());
+        return Err(crate::i18n::tr(
+            "ya hay una selección abierta",
+            "a selection is already open",
+        )
+        .into());
     }
     let screen = capture::virtual_screen();
     // Windows first: they are what the user sees right now.
@@ -162,7 +166,11 @@ pub fn open(mode: Mode, magnifier: bool, crosshair: bool, done: Done) -> Result<
         overlay.gfx = make_gfx(&overlay).ok();
         if overlay.gfx.is_none() {
             let _ = DestroyWindow(hwnd);
-            return Err("Direct2D no pudo crear la superficie de dibujo".into());
+            return Err(crate::i18n::tr(
+                "Direct2D no pudo crear la superficie de dibujo",
+                "Direct2D could not create the drawing surface",
+            )
+            .into());
         }
         OVERLAY.with(|o| *o.borrow_mut() = Some(overlay));
 

@@ -101,6 +101,35 @@ exigen una cuota de mantenimiento):
 
 Deja `dist/ScreenShotCM-<versión>.msi` y su SHA-256.
 
+## Microsoft Store (MSIX)
+
+`msix/build.ps1` genera `dist/ScreenShotCM-<versión>.msix` para enviarlo a
+la Store. Necesita `makeappx.exe` del paquete
+[Microsoft.Windows.SDK.BuildTools](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools)
+descomprimido en `%LOCALAPPDATA%\Programs\windows-sdk-buildtools` (o la
+ruta en `SDK_BUILDTOOLS`).
+
+```powershell
+./msix/build.ps1 -IdentityName "<Package/Identity/Name>" `
+                 -Publisher "<Package/Identity/Publisher>" `
+                 -PublisherDisplayName "<Nombre del editor>"
+```
+
+Los tres valores salen de Partner Center → la aplicación → *Product
+management → Product identity*. Sin ellos el paquete lleva valores de
+prueba: sirve para comprobar que se genera, no para enviarlo. Se sube sin
+firmar: la Store lo firma.
+
+Dentro del paquete, *Iniciar con Windows* usa la tarea de inicio declarada
+en `msix/AppxManifest.xml` y el enlace `screenshotcm://` también se declara
+allí. La aplicación y el paquete están en español e inglés.
+
+## Idioma
+
+Español e inglés. Por defecto, el de Windows; se puede fijar en *Ajustes →
+General → Idioma*. Cada texto de la interfaz está escrito en el código como
+`tr("español", "English")`.
+
 ## Uso desde la línea de comandos o una URL
 
 Un segundo arranque entrega su orden al agente que ya corre:

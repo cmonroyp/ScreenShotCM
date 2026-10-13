@@ -20,6 +20,7 @@ mod gfx;
 mod history;
 mod historywin;
 mod hotkeys;
+mod i18n;
 mod icon;
 mod icons;
 mod image;
@@ -69,6 +70,19 @@ fn main() {
             .is_some_and(|p| std::fs::write(p, icon::ico_file()).is_ok());
         std::process::exit(if ok { 0 } else { 1 });
     }
+    // And for the MSIX package: its tiles and logos.
+    if args.first().map(String::as_str) == Some("--export-store-assets") {
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
+        }
+        let ok = args
+            .get(1)
+            .is_some_and(|d| icon::export_store_assets(std::path::Path::new(d)).is_ok());
+        std::process::exit(if ok { 0 } else { 1 });
+    }
 
     let request = commands::parse_args(&args);
 
@@ -105,6 +119,12 @@ fn main() {
 /// Hands the request to the running agent. A plain relaunch (no verb) has
 /// nothing to hand over: the agent is already in the tray.
 fn forward(request: &Request) {
+    // Opened again from Start or a shortcut, with the agent already in the
+    // tray: show the settings, so opening it always shows something.
+    let request = match request {
+        Request::None => &Request::Run(commands::Command::OpenSettings),
+        other => other,
+    };
     let text = commands::encode(request);
     if text.is_empty() {
         return;
@@ -112,6 +132,14 @@ fn forward(request: &Request) {
     let Ok(hwnd) = (unsafe { FindWindowW(agent::CLASS, PCWSTR::null()) }) else {
         return;
     };
+    // This process was started by the user, so it may bring a window
+    // forward; the agent may not. Hand it that right, or the editor or
+    // the settings it opens appear behind the window the user is in.
+    unsafe {
+        let mut pid = 0u32;
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let _ = windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid);
+    }
     let data = COPYDATASTRUCT {
         dwData: COPYDATA_REQUEST,
         cbData: text.len() as u32,

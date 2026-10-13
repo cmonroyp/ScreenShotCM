@@ -60,7 +60,11 @@ fn shadow_margin(s: f32) -> f32 {
 pub fn open(image: Image, path: Option<PathBuf>) {
     if let Err(e) = create(image, path) {
         log::error(&format!("pin: {e}"));
-        agent::notify("No se pudo fijar la captura", &e, true);
+        agent::notify(
+            crate::i18n::tr("No se pudo fijar la captura", "Could not pin the capture"),
+            &e,
+            true,
+        );
     }
 }
 
@@ -89,7 +93,13 @@ fn create(image: Image, path: Option<PathBuf>) -> Result<(), String> {
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             CLASS,
-            w!("ScreenShotCM — Captura fijada"),
+            PCWSTR(
+                windows::core::HSTRING::from(crate::i18n::tr(
+                    "ScreenShotCM — Captura fijada",
+                    "ScreenShotCM — Pinned capture",
+                ))
+                .as_ptr(),
+            ),
             WS_POPUP,
             0,
             0,
@@ -302,9 +312,17 @@ fn menu(hwnd: HWND) {
             let t = wide(text);
             let _ = AppendMenuW(menu, flags, id, PCWSTR(t.as_ptr()));
         };
-        add(m, MF_STRING, COPY, "Copiar");
-        add(m, MF_STRING, SAVE, "Guardar en la carpeta de capturas");
-        add(m, MF_STRING, EDIT, "Anotar…");
+        add(m, MF_STRING, COPY, crate::i18n::tr("Copiar", "Copy"));
+        add(
+            m,
+            MF_STRING,
+            SAVE,
+            crate::i18n::tr(
+                "Guardar en la carpeta de capturas",
+                "Save to the captures folder",
+            ),
+        );
+        add(m, MF_STRING, EDIT, crate::i18n::tr("Anotar…", "Annotate…"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
         add(
             m,
@@ -314,7 +332,7 @@ fn menu(hwnd: HWND) {
                 MF_STRING
             },
             ZOOM_1,
-            "Tamaño real (100 %)",
+            crate::i18n::tr("Tamaño real (100 %)", "Actual size (100 %)"),
         );
         if let Ok(sub) = CreatePopupMenu() {
             for pct in [100usize, 80, 60, 40, 20] {
@@ -330,13 +348,31 @@ fn menu(hwnd: HWND) {
                     &format!("{pct} %"),
                 );
             }
-            let t = wide("Opacidad");
+            let t = wide(crate::i18n::tr("Opacidad", "Opacity"));
             let _ = AppendMenuW(m, MF_POPUP, sub.0 as usize, PCWSTR(t.as_ptr()));
         }
-        add(m, MF_STRING, LOCK, "Bloquear (los clics la atraviesan)");
+        add(
+            m,
+            MF_STRING,
+            LOCK,
+            crate::i18n::tr(
+                "Bloquear (los clics la atraviesan)",
+                "Lock (clicks pass through)",
+            ),
+        );
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null());
-        add(m, MF_STRING, CLOSE, "Cerrar\tEsc");
-        add(m, MF_STRING, CLOSE_ALL, "Cerrar todas las fijadas");
+        add(
+            m,
+            MF_STRING,
+            CLOSE,
+            crate::i18n::tr("Cerrar\tEsc", "Close\tEsc"),
+        );
+        add(
+            m,
+            MF_STRING,
+            CLOSE_ALL,
+            crate::i18n::tr("Cerrar todas las fijadas", "Close all pinned"),
+        );
         let mut at = POINT::default();
         let _ = GetCursorPos(&mut at);
         let _ = SetForegroundWindow(hwnd);
@@ -354,7 +390,11 @@ fn menu(hwnd: HWND) {
     match chosen {
         COPY => {
             if let Err(e) = clipboard::copy_image(agent::hwnd(), &image) {
-                agent::notify("No se pudo copiar", &e, true);
+                agent::notify(
+                    crate::i18n::tr("No se pudo copiar", "Could not copy"),
+                    &e,
+                    true,
+                );
             }
         }
         SAVE => {
@@ -369,7 +409,11 @@ fn menu(hwnd: HWND) {
                 settings.image_format,
                 settings.jpeg_quality,
             ) {
-                agent::notify("No se pudo guardar", &e.to_string(), true);
+                agent::notify(
+                    crate::i18n::tr("No se pudo guardar", "Could not save"),
+                    &e.to_string(),
+                    true,
+                );
             }
         }
         EDIT => crate::editor::open((*image).clone(), path),

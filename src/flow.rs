@@ -75,7 +75,11 @@ pub fn run(command: Command) {
     };
     if let Err(e) = result {
         log::error(&format!("{command:?}: {e}"));
-        agent::notify("No se pudo capturar", &e, true);
+        agent::notify(
+            crate::i18n::tr("No se pudo capturar", "Could not capture"),
+            &e,
+            true,
+        );
     }
 }
 
@@ -117,7 +121,11 @@ pub fn deliver(image: Image, near: (i32, i32)) {
         && let Err(e) = clipboard::copy_image(agent::hwnd(), &image)
     {
         log::error(&format!("clipboard: {e}"));
-        agent::notify("No se pudo copiar la captura", &e, true);
+        agent::notify(
+            crate::i18n::tr("No se pudo copiar la captura", "Could not copy the capture"),
+            &e,
+            true,
+        );
     }
     let (w, h) = (image.width, image.height);
     let save_to = s.save_after_capture.then(|| save_path(&s));
@@ -164,7 +172,10 @@ pub fn save_path(s: &Settings) -> PathBuf {
     let t = crate::log::timestamp();
     let (date, time) = t.split_once(' ').unwrap_or((&t, ""));
     let time = time.split('.').next().unwrap_or("").replace(':', ".");
-    let base = format!("Captura {date} a las {time}");
+    let base = crate::i18n::trs(
+        format!("Captura {date} a las {time}"),
+        format!("Screenshot {date} at {time}"),
+    );
     let ext = s.image_format.extension();
     let mut path = s.save_dir.join(format!("{base}.{ext}"));
     let mut n = 2;
@@ -277,7 +288,11 @@ extern "system" fn countdown_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     let _ = DestroyWindow(hwnd);
                     let _ = DeleteObject(cd.font.into());
                     if let Err(e) = grab_and_deliver(cd.area) {
-                        agent::notify("No se pudo capturar", &e, true);
+                        agent::notify(
+                            crate::i18n::tr("No se pudo capturar", "Could not capture"),
+                            &e,
+                            true,
+                        );
                     }
                 },
                 None => unsafe {

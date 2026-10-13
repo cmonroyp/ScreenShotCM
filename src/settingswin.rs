@@ -62,6 +62,7 @@ const ID_HISTORY_OPEN: i32 = 113;
 const ID_MAGNIFIER: i32 = 114;
 const ID_CROSSHAIR: i32 = 115;
 const ID_TIMER: i32 = 116;
+const ID_LANGUAGE: i32 = 117;
 const ID_HK_AREA: i32 = 120;
 const ID_HK_WINDOW: i32 = 121;
 const ID_HK_FULL: i32 = 122;
@@ -70,20 +71,29 @@ const ID_RESET: i32 = 130;
 const ID_CANCEL: i32 = 131;
 const ID_OK: i32 = 132;
 
-const CLOSE_CHOICES: [(u32, &str); 6] = [
-    (0, "Nunca"),
-    (5, "A los 5 segundos"),
-    (10, "A los 10 segundos"),
-    (20, "A los 20 segundos"),
-    (30, "A los 30 segundos"),
-    (60, "Al minuto"),
+const CLOSE_CHOICES: [(u32, &str, &str); 6] = [
+    (0, "Nunca", "Never"),
+    (5, "A los 5 segundos", "After 5 seconds"),
+    (10, "A los 10 segundos", "After 10 seconds"),
+    (20, "A los 20 segundos", "After 20 seconds"),
+    (30, "A los 30 segundos", "After 30 seconds"),
+    (60, "Al minuto", "After a minute"),
 ];
-const HISTORY_CHOICES: [(u32, &str); 5] = [
-    (7, "1 semana"),
-    (14, "2 semanas"),
-    (30, "1 mes"),
-    (90, "3 meses"),
-    (0, "Siempre"),
+const HISTORY_CHOICES: [(u32, &str, &str); 5] = [
+    (7, "1 semana", "1 week"),
+    (14, "2 semanas", "2 weeks"),
+    (30, "1 mes", "1 month"),
+    (90, "3 meses", "3 months"),
+    (0, "Siempre", "Forever"),
+];
+const LANGUAGE_CHOICES: [(crate::settings::Language, &str, &str); 3] = [
+    (
+        crate::settings::Language::Auto,
+        "Automático (el de Windows)",
+        "Automatic (Windows' own)",
+    ),
+    (crate::settings::Language::Spanish, "Español", "Español"),
+    (crate::settings::Language::English, "English", "English"),
 ];
 const TIMER_CHOICES: [u32; 4] = [3, 5, 10, 15];
 
@@ -112,7 +122,14 @@ pub fn open() {
     }
     if let Err(e) = create() {
         log::error(&format!("settings window: {e}"));
-        agent::notify("No se pudieron abrir los ajustes", &e, true);
+        agent::notify(
+            crate::i18n::tr(
+                "No se pudieron abrir los ajustes",
+                "Could not open the settings",
+            ),
+            &e,
+            true,
+        );
     }
 }
 
@@ -144,7 +161,13 @@ fn create() -> Result<(), String> {
         let hwnd = CreateWindowExW(
             WS_EX_APPWINDOW,
             CLASS,
-            w!("Ajustes — ScreenShotCM"),
+            PCWSTR(
+                windows::core::HSTRING::from(crate::i18n::tr(
+                    "Ajustes — ScreenShotCM",
+                    "Settings — ScreenShotCM",
+                ))
+                .as_ptr(),
+            ),
             WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -276,20 +299,44 @@ fn create() -> Result<(), String> {
             SendMessageW(h, CB_SETCURSEL, Some(WPARAM(selected)), None);
         };
 
-        heading("General", left, &mut y);
+        heading(crate::i18n::tr("General", "General"), left, &mut y);
         check(
-            "Iniciar ScreenShotCM con Windows",
+            crate::i18n::tr(
+                "Iniciar ScreenShotCM con Windows",
+                "Start ScreenShotCM with Windows",
+            ),
             left,
             y,
             width,
             ID_AUTOSTART,
             autostart::is_enabled(),
         );
+        y += row;
+        label(crate::i18n::tr("Idioma:", "Language:"), left, y, px(170.0));
+        let language_idx = LANGUAGE_CHOICES
+            .iter()
+            .position(|c| c.0 == settings.language)
+            .unwrap_or(0);
+        combo(
+            left + px(180.0),
+            y,
+            px(260.0),
+            ID_LANGUAGE,
+            &LANGUAGE_CHOICES.map(|c| crate::i18n::tr(c.1, c.2)),
+            language_idx,
+        );
         y += row + px(6.0);
 
-        heading("Después de capturar", left, &mut y);
+        heading(
+            crate::i18n::tr("Después de capturar", "After capturing"),
+            left,
+            &mut y,
+        );
         check(
-            "Copiar la captura al portapapeles",
+            crate::i18n::tr(
+                "Copiar la captura al portapapeles",
+                "Copy the capture to the clipboard",
+            ),
             left,
             y,
             width,
@@ -298,7 +345,10 @@ fn create() -> Result<(), String> {
         );
         y += row;
         check(
-            "Mostrar la miniatura de acceso rápido",
+            crate::i18n::tr(
+                "Mostrar la miniatura de acceso rápido",
+                "Show the quick-access thumbnail",
+            ),
             left,
             y,
             width,
@@ -307,7 +357,10 @@ fn create() -> Result<(), String> {
         );
         y += row;
         check(
-            "Abrir el editor directamente",
+            crate::i18n::tr(
+                "Abrir el editor directamente",
+                "Open the editor straight away",
+            ),
             left,
             y,
             width,
@@ -316,7 +369,10 @@ fn create() -> Result<(), String> {
         );
         y += row;
         check(
-            "Guardar también en la carpeta de capturas",
+            crate::i18n::tr(
+                "Guardar también en la carpeta de capturas",
+                "Also save to the captures folder",
+            ),
             left,
             y,
             width,
@@ -324,7 +380,12 @@ fn create() -> Result<(), String> {
             settings.save_after_capture,
         );
         y += row;
-        label("Cerrar la miniatura:", left, y, px(170.0));
+        label(
+            crate::i18n::tr("Cerrar la miniatura:", "Close the thumbnail:"),
+            left,
+            y,
+            px(170.0),
+        );
         let close_idx = CLOSE_CHOICES
             .iter()
             .position(|c| c.0 == settings.overlay_close_seconds)
@@ -334,13 +395,13 @@ fn create() -> Result<(), String> {
             y,
             px(200.0),
             ID_CLOSE_AFTER,
-            &CLOSE_CHOICES.map(|c| c.1),
+            &CLOSE_CHOICES.map(|c| crate::i18n::tr(c.1, c.2)),
             close_idx,
         );
         y += row + px(12.0);
 
-        heading("Archivos", left, &mut y);
-        label("Carpeta:", left, y, px(80.0));
+        heading(crate::i18n::tr("Archivos", "Files"), left, &mut y);
+        label(crate::i18n::tr("Carpeta:", "Folder:"), left, y, px(80.0));
         let folder = ctl(
             w!("EDIT"),
             &settings.save_dir.to_string_lossy(),
@@ -354,7 +415,7 @@ fn create() -> Result<(), String> {
         let _ = folder;
         ctl(
             w!("BUTTON"),
-            "Cambiar…",
+            crate::i18n::tr("Cambiar…", "Change…"),
             BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
             left + px(420.0),
             y - px(1.0),
@@ -363,7 +424,7 @@ fn create() -> Result<(), String> {
             ID_FOLDER_PICK,
         );
         y += row + px(4.0);
-        label("Formato:", left, y, px(80.0));
+        label(crate::i18n::tr("Formato:", "Format:"), left, y, px(80.0));
         let png = ctl(
             w!("BUTTON"),
             "PNG",
@@ -394,7 +455,12 @@ fn create() -> Result<(), String> {
             Some(WPARAM(BST_CHECKED.0 as usize)),
             None,
         );
-        label("Calidad JPEG:", left + px(270.0), y, px(110.0));
+        label(
+            crate::i18n::tr("Calidad JPEG:", "JPEG quality:"),
+            left + px(270.0),
+            y,
+            px(110.0),
+        );
         ctl(
             w!("EDIT"),
             &settings.jpeg_quality.to_string(),
@@ -406,7 +472,7 @@ fn create() -> Result<(), String> {
             ID_QUALITY,
         );
         y += row + px(4.0);
-        label("Historial:", left, y, px(80.0));
+        label(crate::i18n::tr("Historial:", "History:"), left, y, px(80.0));
         let days_idx = HISTORY_CHOICES
             .iter()
             .position(|c| c.0 == settings.history_days)
@@ -416,12 +482,12 @@ fn create() -> Result<(), String> {
             y,
             px(160.0),
             ID_HISTORY_DAYS,
-            &HISTORY_CHOICES.map(|c| c.1),
+            &HISTORY_CHOICES.map(|c| crate::i18n::tr(c.1, c.2)),
             days_idx,
         );
         ctl(
             w!("BUTTON"),
-            "Abrir historial",
+            crate::i18n::tr("Abrir historial", "Open history"),
             BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
             left + px(270.0),
             y - px(1.0),
@@ -436,9 +502,9 @@ fn create() -> Result<(), String> {
         let left_bottom = y;
         left += width + px(40.0);
         y = px(16.0);
-        heading("Selección", left, &mut y);
+        heading(crate::i18n::tr("Selección", "Selection"), left, &mut y);
         check(
-            "Mostrar la lupa",
+            crate::i18n::tr("Mostrar la lupa", "Show the magnifier"),
             left,
             y,
             px(200.0),
@@ -446,7 +512,7 @@ fn create() -> Result<(), String> {
             settings.show_magnifier,
         );
         check(
-            "Mostrar la cruz",
+            crate::i18n::tr("Mostrar la cruz", "Show the crosshair"),
             left + px(220.0),
             y,
             px(200.0),
@@ -454,10 +520,15 @@ fn create() -> Result<(), String> {
             settings.show_crosshair,
         );
         y += row;
-        label("Temporizador:", left, y, px(120.0));
+        label(
+            crate::i18n::tr("Temporizador:", "Timer:"),
+            left,
+            y,
+            px(120.0),
+        );
         let timer_labels: Vec<String> = TIMER_CHOICES
             .iter()
-            .map(|t| format!("{t} segundos"))
+            .map(|t| crate::i18n::trs(format!("{t} segundos"), format!("{t} seconds")))
             .collect();
         let timer_refs: Vec<&str> = timer_labels.iter().map(String::as_str).collect();
         let timer_idx = TIMER_CHOICES
@@ -474,14 +545,30 @@ fn create() -> Result<(), String> {
         );
         y += row + px(12.0);
 
-        heading("Atajos de teclado", left, &mut y);
+        heading(
+            crate::i18n::tr("Atajos de teclado", "Keyboard shortcuts"),
+            left,
+            &mut y,
+        );
         for (id, text, value) in [
-            (ID_HK_AREA, "Capturar área", &settings.hotkey_area),
-            (ID_HK_WINDOW, "Capturar ventana", &settings.hotkey_window),
-            (ID_HK_FULL, "Pantalla completa", &settings.hotkey_fullscreen),
+            (
+                ID_HK_AREA,
+                crate::i18n::tr("Capturar área", "Capture area"),
+                &settings.hotkey_area,
+            ),
+            (
+                ID_HK_WINDOW,
+                crate::i18n::tr("Capturar ventana", "Capture window"),
+                &settings.hotkey_window,
+            ),
+            (
+                ID_HK_FULL,
+                crate::i18n::tr("Pantalla completa", "Full screen"),
+                &settings.hotkey_fullscreen,
+            ),
             (
                 ID_HK_PREVIOUS,
-                "Área anterior",
+                crate::i18n::tr("Área anterior", "Previous area"),
                 &settings.hotkey_previous_area,
             ),
         ] {
@@ -511,7 +598,10 @@ fn create() -> Result<(), String> {
             y += row + px(2.0);
         }
         label(
-            "Haz clic en un campo y pulsa la combinación. Retroceso lo vacía.",
+            crate::i18n::tr(
+                "Haz clic en un campo y pulsa la combinación. Retroceso lo vacía.",
+                "Click a field and press the keys. Backspace clears it.",
+            ),
             left,
             y,
             width,
@@ -524,7 +614,7 @@ fn create() -> Result<(), String> {
         let bw = px(110.0);
         ctl(
             w!("BUTTON"),
-            "Restablecer",
+            crate::i18n::tr("Restablecer", "Reset"),
             BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
             left,
             y,
@@ -534,7 +624,7 @@ fn create() -> Result<(), String> {
         );
         ctl(
             w!("BUTTON"),
-            "Cancelar",
+            crate::i18n::tr("Cancelar", "Cancel"),
             BS_PUSHBUTTON as u32 | WS_TABSTOP.0,
             left + width - 2 * bw - px(10.0),
             y,
@@ -544,7 +634,7 @@ fn create() -> Result<(), String> {
         );
         ctl(
             w!("BUTTON"),
-            "Guardar",
+            crate::i18n::tr("Guardar", "Save"),
             BS_DEFPUSHBUTTON as u32 | WS_TABSTOP.0,
             left + width - bw,
             y,
@@ -640,7 +730,13 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     };
     s.jpeg_quality = match text(hwnd, ID_QUALITY).trim().parse::<u8>() {
         Ok(q) if (1..=100).contains(&q) => q,
-        _ => return Err("La calidad JPEG va de 1 a 100.".into()),
+        _ => {
+            return Err(crate::i18n::tr(
+                "La calidad JPEG va de 1 a 100.",
+                "JPEG quality goes from 1 to 100.",
+            )
+            .into());
+        }
     };
     s.history_days =
         HISTORY_CHOICES[selection(hwnd, ID_HISTORY_DAYS).min(HISTORY_CHOICES.len() - 1)].0;
@@ -651,6 +747,7 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     s.hotkey_window = text(hwnd, ID_HK_WINDOW);
     s.hotkey_fullscreen = text(hwnd, ID_HK_FULL);
     s.hotkey_previous_area = text(hwnd, ID_HK_PREVIOUS);
+    s.language = LANGUAGE_CHOICES[selection(hwnd, ID_LANGUAGE).min(LANGUAGE_CHOICES.len() - 1)].0;
     let keys = [
         &s.hotkey_area,
         &s.hotkey_window,
@@ -659,7 +756,10 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     ];
     for (i, a) in keys.iter().enumerate() {
         if !a.is_empty() && keys[i + 1..].iter().any(|b| b.eq_ignore_ascii_case(a)) {
-            return Err(format!("El atajo «{a}» está repetido."));
+            return Err(crate::i18n::trs(
+                format!("El atajo «{a}» está repetido."),
+                format!("The shortcut «{a}» is repeated."),
+            ));
         }
         hotkeys::parse(a)?;
     }
@@ -683,10 +783,24 @@ fn apply(hwnd: HWND) -> bool {
         }
     };
     if let Err(e) = autostart::set(checked(hwnd, ID_AUTOSTART)) {
-        agent::notify("No se pudo cambiar el inicio con Windows", &e, true);
+        agent::notify(
+            crate::i18n::tr(
+                "No se pudo cambiar el inicio con Windows",
+                "Could not change starting with Windows",
+            ),
+            &e,
+            true,
+        );
     }
     if let Err(e) = s.save() {
-        agent::notify("No se pudieron guardar los ajustes", &e.to_string(), true);
+        agent::notify(
+            crate::i18n::tr(
+                "No se pudieron guardar los ajustes",
+                "Could not save the settings",
+            ),
+            &e.to_string(),
+            true,
+        );
         return false;
     }
     agent::replace_settings(s);
@@ -701,7 +815,10 @@ fn pick_folder(hwnd: HWND) {
             return;
         };
         let _ = dialog.SetOptions(FOS_PICKFOLDERS);
-        let _ = dialog.SetTitle(w!("Carpeta para las capturas"));
+        let _ = dialog.SetTitle(&windows::core::HSTRING::from(crate::i18n::tr(
+            "Carpeta para las capturas",
+            "Folder for captures",
+        )));
         if dialog.Show(Some(hwnd)).is_err() {
             return;
         }
@@ -762,6 +879,7 @@ fn reset(hwnd: HWND) {
             .position(|c| c.0 == d.history_days)
             .unwrap_or(2),
     );
+    sel(ID_LANGUAGE, 0);
     sel(
         ID_TIMER,
         TIMER_CHOICES
@@ -946,13 +1064,14 @@ extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
                 let shown = if n == 0 {
                     SetTextColor(dc, COLORREF(GetSysColor(COLOR_GRAYTEXT)));
                     if focused {
-                        "Pulsa la combinación…".to_string()
+                        crate::i18n::tr("Pulsa la combinación…", "Press the keys…").to_string()
                     } else {
-                        "Sin atajo".to_string()
+                        crate::i18n::tr("Sin atajo", "No shortcut").to_string()
                     }
                 } else {
                     SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
-                    String::from_utf16_lossy(&buf[..n]).replace("PrintScreen", "Impr Pant")
+                    String::from_utf16_lossy(&buf[..n])
+                        .replace("PrintScreen", crate::i18n::tr("Impr Pant", "PrtScn"))
                 };
                 let mut t: Vec<u16> = shown.encode_utf16().collect();
                 let mut r = RECT {

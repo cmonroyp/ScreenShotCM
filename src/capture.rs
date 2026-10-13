@@ -40,12 +40,12 @@ pub fn virtual_screen() -> Rect {
 /// Copies `area` of the screen.
 pub fn grab(area: Rect) -> Result<Image, String> {
     if area.is_empty() {
-        return Err("área vacía".into());
+        return Err(crate::i18n::tr("área vacía", "empty area").into());
     }
     unsafe {
         let screen = GetDC(None);
         if screen.is_invalid() {
-            return Err("GetDC falló".into());
+            return Err(crate::i18n::tr("GetDC falló", "GetDC failed").into());
         }
         let result = grab_from(screen, area);
         ReleaseDC(None, screen);

@@ -95,10 +95,10 @@ pub fn run(first: Request) -> i32 {
         };
 
         let settings = Settings::load();
+        crate::i18n::apply(settings.language);
+        let first_run = !crate::settings::file().exists();
         // First run: write the file out, so the user has something to edit.
-        if !crate::settings::file().exists()
-            && let Err(e) = settings.save()
-        {
+        if first_run && let Err(e) = settings.save() {
             log::error(&format!("settings save: {e}"));
         }
         let tray = Tray::new(hwnd);
@@ -111,7 +111,14 @@ pub fn run(first: Request) -> i32 {
             })
         });
         register_hotkeys();
+        // The very first start shows the settings as a welcome: where the
+        // shortcuts are and what happens after a capture. Starts with
+        // Windows afterwards stay silent in the tray.
+        let welcome = first_run && first == Request::None;
         handle(first);
+        if welcome {
+            dispatch(Command::OpenSettings);
+        }
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -128,6 +135,7 @@ pub fn run(first: Request) -> i32 {
 
 /// Settings saved by the settings window take effect at once.
 pub fn replace_settings(settings: Settings) {
+    crate::i18n::apply(settings.language);
     with(|a| a.settings = settings);
 }
 
@@ -145,7 +153,14 @@ fn register_hotkeys() {
     if !problems.is_empty() {
         let text = problems.join("\n");
         log::error(&format!("hotkeys: {text}"));
-        notify("Algunos atajos no están activos", &text, true);
+        notify(
+            crate::i18n::tr(
+                "Algunos atajos no están activos",
+                "Some shortcuts are not active",
+            ),
+            &text,
+            true,
+        );
     }
 }
 
@@ -154,11 +169,11 @@ pub fn handle(request: Request) {
         Request::None => {}
         Request::Run(c) => dispatch(c),
         Request::Annotate(path) => match crate::image::load(&path) {
-            // A file opened from outside is edited as a copy: "Listo" puts
+            // A file opened from outside is edited as a copy: crate::i18n::tr("Listo", "Done") puts
             // the result in the history, never over the user's own file.
             Ok(img) => crate::editor::open(img, None),
             Err(e) => notify(
-                "No se pudo abrir la imagen",
+                crate::i18n::tr("No se pudo abrir la imagen", "Could not open the image"),
                 &format!("{}: {e}", path.display()),
                 true,
             ),
@@ -166,7 +181,7 @@ pub fn handle(request: Request) {
         Request::Pin(path) => match crate::image::load(&path) {
             Ok(img) => crate::pin::open(img, None),
             Err(e) => notify(
-                "No se pudo abrir la imagen",
+                crate::i18n::tr("No se pudo abrir la imagen", "Could not open the image"),
                 &format!("{}: {e}", path.display()),
                 true,
             ),
@@ -185,25 +200,41 @@ pub fn dispatch(command: Command) {
         Command::OpenSettings => crate::settingswin::open(),
         Command::ReloadSettings => {
             let fresh = Settings::load();
-            with(|a| a.settings = fresh);
+            replace_settings(fresh);
             register_hotkeys();
             notify(
-                "Ajustes recargados",
-                "Los atajos y opciones nuevos ya están activos.",
+                crate::i18n::tr("Ajustes recargados", "Settings reloaded"),
+                crate::i18n::tr(
+                    "Los atajos y opciones nuevos ya están activos.",
+                    "The new shortcuts and options are active.",
+                ),
                 false,
             );
         }
         Command::ToggleAutostart => {
             if let Err(e) = autostart::set(!autostart::is_enabled()) {
-                notify("No se pudo cambiar el inicio con Windows", &e, true);
+                notify(
+                    crate::i18n::tr(
+                        "No se pudo cambiar el inicio con Windows",
+                        "Could not change starting with Windows",
+                    ),
+                    &e,
+                    true,
+                );
             }
         }
         Command::OpenHistory => crate::historywin::open(),
         Command::OpenFromClipboard => match crate::clipboard::get_image(hwnd()) {
             Some(img) => crate::editor::open(img, None),
             None => notify(
-                "El portapapeles no tiene una imagen",
-                "Copia una imagen y vuelve a intentarlo.",
+                crate::i18n::tr(
+                    "El portapapeles no tiene una imagen",
+                    "The clipboard holds no image",
+                ),
+                crate::i18n::tr(
+                    "Copia una imagen y vuelve a intentarlo.",
+                    "Copy an image and try again.",
+                ),
                 false,
             ),
         },

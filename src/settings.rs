@@ -27,6 +27,25 @@ pub struct Settings {
     pub hotkey_fullscreen: String,
     pub hotkey_window: String,
     pub hotkey_previous_area: String,
+    pub language: Language,
+}
+
+/// The interface language: Windows' own, or one chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Language {
+    Auto,
+    Spanish,
+    English,
+}
+
+impl Language {
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::Auto => "auto",
+            Language::Spanish => "es",
+            Language::English => "en",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +70,7 @@ impl Default for Settings {
             copy_after_capture: true,
             save_after_capture: false,
             show_overlay: true,
-            // The maintainer asked for it: a capture opens straight in the editor.
+            // A capture opens straight in the editor.
             open_editor_after_capture: true,
             overlay_close_seconds: 0,
             image_format: ImageFormat::Png,
@@ -64,6 +83,7 @@ impl Default for Settings {
             hotkey_fullscreen: "Ctrl+PrintScreen".into(),
             hotkey_window: "Shift+PrintScreen".into(),
             hotkey_previous_area: "Alt+Shift+PrintScreen".into(),
+            language: Language::Auto,
         }
     }
 }
@@ -132,6 +152,15 @@ impl Settings {
                 "hotkey_fullscreen" => s.hotkey_fullscreen = v.into(),
                 "hotkey_window" => s.hotkey_window = v.into(),
                 "hotkey_previous_area" => s.hotkey_previous_area = v.into(),
+                "language" => set(
+                    &mut s.language,
+                    match v.to_ascii_lowercase().as_str() {
+                        "auto" => Some(Language::Auto),
+                        "es" => Some(Language::Spanish),
+                        "en" => Some(Language::English),
+                        _ => None,
+                    },
+                ),
                 _ => {}
             }
         }
@@ -159,7 +188,8 @@ impl Settings {
              hotkey_area = {}\n\
              hotkey_fullscreen = {}\n\
              hotkey_window = {}\n\
-             hotkey_previous_area = {}\n",
+             hotkey_previous_area = {}\n\
+             language = {}\n",
             self.save_dir.display(),
             b(self.copy_after_capture),
             b(self.save_after_capture),
@@ -176,6 +206,7 @@ impl Settings {
             self.hotkey_fullscreen,
             self.hotkey_window,
             self.hotkey_previous_area,
+            self.language.code(),
         )
     }
 
@@ -210,6 +241,7 @@ mod tests {
         s.jpeg_quality = 70;
         s.hotkey_area = "Ctrl+Alt+A".into();
         s.save_dir = PathBuf::from(r"D:\Capturas con espacio");
+        s.language = Language::English;
         assert_eq!(Settings::parse(&s.serialise()), s);
     }
 

@@ -102,7 +102,14 @@ pub fn open() {
     }
     if let Err(e) = create() {
         log::error(&format!("history window: {e}"));
-        agent::notify("No se pudo abrir el historial", &e, true);
+        agent::notify(
+            crate::i18n::tr(
+                "No se pudo abrir el historial",
+                "Could not open the history",
+            ),
+            &e,
+            true,
+        );
     }
 }
 
@@ -190,7 +197,13 @@ fn create() -> Result<(), String> {
         let hwnd = CreateWindowExW(
             WS_EX_APPWINDOW,
             CLASS,
-            w!("Historial de capturas — ScreenShotCM"),
+            PCWSTR(
+                windows::core::HSTRING::from(crate::i18n::tr(
+                    "Historial de capturas — ScreenShotCM",
+                    "Capture history — ScreenShotCM",
+                ))
+                .as_ptr(),
+            ),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -533,7 +546,9 @@ impl History {
             t.FillRectangle(&rectf(0.0, 0.0, w, self.header_h()), &g.brush);
             g.brush.SetColor(&p.chrome_line);
             t.FillRectangle(&rectf(0.0, self.header_h() - 1.0, w, 1.0), &g.brush);
-            let title: Vec<u16> = "Historial".encode_utf16().collect();
+            let title: Vec<u16> = crate::i18n::tr("Historial", "History")
+                .encode_utf16()
+                .collect();
             g.brush.SetColor(&p.text);
             t.DrawText(
                 &title,
@@ -545,9 +560,15 @@ impl History {
             );
             let days = agent::settings().history_days;
             let sub = match self.entries.len() {
-                0 => "Aún no hay capturas".to_string(),
-                1 => format!("1 captura · se guardan {days} días"),
-                n => format!("{n} capturas · se guardan {days} días"),
+                0 => crate::i18n::tr("Aún no hay capturas", "No captures yet").to_string(),
+                1 => crate::i18n::trs(
+                    format!("1 captura · se guardan {days} días"),
+                    format!("1 capture · kept {days} days"),
+                ),
+                n => crate::i18n::trs(
+                    format!("{n} capturas · se guardan {days} días"),
+                    format!("{n} captures · kept {days} days"),
+                ),
             };
             let units: Vec<u16> = sub.encode_utf16().collect();
             let _ = g.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -561,7 +582,12 @@ impl History {
                 Default::default(),
             );
             if self.entries.is_empty() {
-                let units: Vec<u16> = "Las capturas aparecerán aquí.".encode_utf16().collect();
+                let units: Vec<u16> = crate::i18n::tr(
+                    "Las capturas aparecerán aquí.",
+                    "Your captures will appear here.",
+                )
+                .encode_utf16()
+                .collect();
                 let _ = g.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 t.DrawText(
                     &units,
@@ -597,7 +623,13 @@ fn act(i: usize, btn: Btn) {
             let answer = unsafe {
                 MessageBoxW(
                     Some(hwnd),
-                    w!("¿Eliminar esta captura del historial?"),
+                    PCWSTR(
+                        windows::core::HSTRING::from(crate::i18n::tr(
+                            "¿Eliminar esta captura del historial?",
+                            "Delete this capture from the history?",
+                        ))
+                        .as_ptr(),
+                    ),
                     w!("ScreenShotCM"),
                     MB_YESNO | MB_ICONWARNING,
                 )
@@ -620,14 +652,22 @@ fn act(i: usize, btn: Btn) {
             Ok(img) => match btn {
                 Btn::Copy => {
                     if let Err(e) = clipboard::copy_image(agent::hwnd(), &img) {
-                        agent::notify("No se pudo copiar", &e, true);
+                        agent::notify(
+                            crate::i18n::tr("No se pudo copiar", "Could not copy"),
+                            &e,
+                            true,
+                        );
                     }
                 }
                 Btn::Edit => crate::editor::open(img, Some(path)),
                 Btn::Pin => crate::pin::open(img, Some(path)),
                 Btn::Delete => unreachable!(),
             },
-            Err(e) => agent::notify("No se pudo abrir la captura", &e.to_string(), true),
+            Err(e) => agent::notify(
+                crate::i18n::tr("No se pudo abrir la captura", "Could not open the capture"),
+                &e.to_string(),
+                true,
+            ),
         },
     }
 }

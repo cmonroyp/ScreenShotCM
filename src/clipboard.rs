@@ -71,7 +71,9 @@ fn put(owner: HWND, format: u16, bytes: &[u8]) -> Result<(), PutError> {
         let ptr = GlobalLock(mem) as *mut u8;
         if ptr.is_null() {
             let _ = GlobalFree(Some(mem));
-            return Err(PutError::Failed("GlobalLock falló".into()));
+            return Err(PutError::Failed(
+                crate::i18n::tr("GlobalLock falló", "GlobalLock failed").into(),
+            ));
         }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
         let _ = GlobalUnlock(mem);
@@ -85,7 +87,9 @@ fn put(owner: HWND, format: u16, bytes: &[u8]) -> Result<(), PutError> {
         let _ = CloseClipboard();
         if set.is_err() {
             let _ = GlobalFree(Some(mem));
-            return Err(PutError::Failed("SetClipboardData falló".into()));
+            return Err(PutError::Failed(
+                crate::i18n::tr("SetClipboardData falló", "SetClipboardData failed").into(),
+            ));
         }
     }
     Ok(())
@@ -157,20 +161,38 @@ pub fn retry() {
             true
         }
         Err(PutError::Failed(e)) => {
-            crate::agent::notify("No se pudo copiar la captura", &e, true);
+            crate::agent::notify(
+                crate::i18n::tr("No se pudo copiar la captura", "Could not copy the capture"),
+                &e,
+                true,
+            );
             true
         }
         Err(PutError::Busy) if waited >= RETRY_FOR => {
             let who = holder()
-                .map(|h| format!("{h} tiene el portapapeles ocupado."))
-                .unwrap_or_else(|| "Otro programa tiene el portapapeles ocupado.".into());
+                .map(|h| {
+                    crate::i18n::trs(
+                        format!("{h} tiene el portapapeles ocupado."),
+                        format!("{h} is holding the clipboard."),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    crate::i18n::tr(
+                        "Otro programa tiene el portapapeles ocupado.",
+                        "Another program is holding the clipboard.",
+                    )
+                    .into()
+                });
             crate::log::error(&format!(
                 "clipboard: gave up after {} ms: {who}",
                 waited.as_millis()
             ));
             crate::agent::notify(
-                "No se pudo copiar la captura",
-                &format!("{who} La captura está en el historial."),
+                crate::i18n::tr("No se pudo copiar la captura", "Could not copy the capture"),
+                &crate::i18n::trs(
+                    format!("{who} La captura está en el historial."),
+                    format!("{who} The capture is in the history."),
+                ),
                 true,
             );
             true
@@ -215,7 +237,11 @@ pub fn set_text(owner: HWND, text: &str) -> Result<(), String> {
     let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let bytes = unsafe { std::slice::from_raw_parts(units.as_ptr() as *const u8, units.len() * 2) };
     put(owner, CF_UNICODETEXT.0, bytes).map_err(|e| match e {
-        PutError::Busy => "otro programa tiene el portapapeles abierto".to_string(),
+        PutError::Busy => crate::i18n::tr(
+            "otro programa tiene el portapapeles abierto",
+            "another program has the clipboard open",
+        )
+        .to_string(),
         PutError::Failed(e) => e,
     })
 }

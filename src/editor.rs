@@ -1,6 +1,6 @@
 //! The annotation editor: a toolbar along the top
 //! (crop and background, the tools in one pill, the active tool's options,
-//! "Guardar como…" and "Listo"), the capture in the middle, and a bottom bar
+//! crate::i18n::tr("Guardar como…", "Save as…") and crate::i18n::tr("Listo", "Done")), the capture in the middle, and a bottom bar
 //! with the zoom, undo, the drag handle and pin / copy / save.
 //!
 //! The window draws its own title bar; Windows still provides the frame, the
@@ -71,7 +71,7 @@ const WM_EDITOR_CLOSE: u32 = WM_APP + 20;
 const FLASH_TIMER: usize = 7;
 /// The narrowest editor that still shows every toolbar control: crop and
 /// background, twelve tools, the active tool's colour, size and style,
-/// "Guardar como…", "Listo" and the window buttons. At 881 px the colour and
+/// "Guardar como…", crate::i18n::tr("Listo", "Done") and the window buttons. At 881 px the colour and
 /// size had no room and were dropped.
 const MIN_W: f32 = 1080.0;
 
@@ -82,32 +82,81 @@ pub enum Tool {
     Crop,
 }
 
-const TOOLS: [(Tool, Icon, &str); 12] = [
-    (Tool::Select, Icon::Select, "Seleccionar (V)"),
-    (Tool::Draw(Kind::Rect), Icon::Rect, "Rectángulo (R)"),
+/// The tools, with their names in Spanish and English: shown in a label
+/// under the button the pointer rests on.
+const TOOLS: [(Tool, Icon, &str, &str); 12] = [
+    (Tool::Select, Icon::Select, "Seleccionar (V)", "Select (V)"),
+    (
+        Tool::Draw(Kind::Rect),
+        Icon::Rect,
+        "Rectángulo (R)",
+        "Rectangle (R)",
+    ),
     (
         Tool::Draw(Kind::FilledRect),
         Icon::FilledRect,
         "Rectángulo relleno (F)",
+        "Filled rectangle (F)",
     ),
-    (Tool::Draw(Kind::Ellipse), Icon::Ellipse, "Elipse (O)"),
-    (Tool::Draw(Kind::Line), Icon::Line, "Línea (L)"),
-    (Tool::Draw(Kind::Arrow), Icon::Arrow, "Flecha (A)"),
-    (Tool::Draw(Kind::Text), Icon::Text, "Texto (T)"),
+    (
+        Tool::Draw(Kind::Ellipse),
+        Icon::Ellipse,
+        "Elipse (O)",
+        "Ellipse (O)",
+    ),
+    (Tool::Draw(Kind::Line), Icon::Line, "Línea (L)", "Line (L)"),
+    (
+        Tool::Draw(Kind::Arrow),
+        Icon::Arrow,
+        "Flecha (A)",
+        "Arrow (A)",
+    ),
+    (Tool::Draw(Kind::Text), Icon::Text, "Texto (T)", "Text (T)"),
     (
         Tool::Draw(Kind::Pixelate),
         Icon::Pixelate,
         "Pixelar o desenfocar (B)",
+        "Pixelate or blur (B)",
     ),
-    (Tool::Draw(Kind::Spotlight), Icon::Spotlight, "Foco (S)"),
-    (Tool::Draw(Kind::Counter), Icon::Counter, "Contador (N)"),
-    (Tool::Draw(Kind::Pen), Icon::Pen, "Lápiz (P)"),
+    (
+        Tool::Draw(Kind::Spotlight),
+        Icon::Spotlight,
+        "Foco (S)",
+        "Spotlight (S)",
+    ),
+    (
+        Tool::Draw(Kind::Counter),
+        Icon::Counter,
+        "Contador (N)",
+        "Counter (N)",
+    ),
+    (Tool::Draw(Kind::Pen), Icon::Pen, "Lápiz (P)", "Pen (P)"),
     (
         Tool::Draw(Kind::Highlighter),
         Icon::Highlighter,
         "Resaltador (H)",
+        "Highlighter (H)",
     ),
 ];
+
+/// The other toolbar buttons that get a label on hover.
+fn button_name(act: Act) -> Option<&'static str> {
+    use crate::i18n::tr;
+    Some(match act {
+        Act::Tool(Tool::Crop) => tr("Recortar (C)", "Crop (C)"),
+        Act::Background => tr("Fondo", "Background"),
+        Act::Undo => tr("Deshacer (Ctrl+Z)", "Undo (Ctrl+Z)"),
+        Act::Redo => tr("Rehacer (Ctrl+Y)", "Redo (Ctrl+Y)"),
+        Act::Pin => tr("Fijar en pantalla", "Pin to screen"),
+        Act::Copy => tr("Copiar (Ctrl+C)", "Copy (Ctrl+C)"),
+        Act::Save => tr("Guardar (Ctrl+S)", "Save (Ctrl+S)"),
+        Act::Tool(t) => {
+            let &(_, _, es, en) = TOOLS.iter().find(|x| x.0 == t)?;
+            tr(es, en)
+        }
+        _ => return None,
+    })
+}
 
 const STROKE_SIZES: [f32; 6] = [2.0, 4.0, 6.0, 8.0, 12.0, 16.0];
 const TEXT_SIZES: [f32; 9] = [14.0, 18.0, 24.0, 30.0, 36.0, 48.0, 64.0, 72.0, 96.0];
@@ -283,7 +332,7 @@ struct Editor {
     popover: Option<Popover>,
     items: Vec<Item>,
     pop_items: Vec<Item>,
-    /// The history file this capture came from; "Listo" writes it back.
+    /// The history file this capture came from; crate::i18n::tr("Listo", "Done") writes it back.
     source: Option<PathBuf>,
     dirty: bool,
     flash: Option<String>,
@@ -301,11 +350,15 @@ struct Editor {
 }
 
 /// Opens an editor on `image`. `source` is the capture's file in the history,
-/// rewritten with the annotations when the user presses "Listo".
+/// rewritten with the annotations when the user presses crate::i18n::tr("Listo", "Done").
 pub fn open(image: Image, source: Option<PathBuf>) {
     if let Err(e) = create(image, source) {
         log::error(&format!("editor: {e}"));
-        agent::notify("No se pudo abrir el editor", &e, true);
+        agent::notify(
+            crate::i18n::tr("No se pudo abrir el editor", "Could not open the editor"),
+            &e,
+            true,
+        );
     }
 }
 
@@ -1074,7 +1127,7 @@ impl Editor {
                 h: btn,
             },
             act: Act::Done,
-            face: Face::Primary("Listo".into()),
+            face: Face::Primary(crate::i18n::tr("Listo", "Done").into()),
         });
         let save_w = 112.0 * s;
         right -= gap + save_w;
@@ -1086,7 +1139,7 @@ impl Editor {
                 h: btn,
             },
             act: Act::SaveAs,
-            face: Face::Secondary("Guardar como…".into()),
+            face: Face::Secondary(crate::i18n::tr("Guardar como…", "Save as…").into()),
         });
         let right_limit = right - gap;
 
@@ -1114,7 +1167,7 @@ impl Editor {
         });
         x += btn + gap * 1.5;
 
-        for (tool, icon, _) in TOOLS {
+        for (tool, icon, _, _) in TOOLS {
             items.push(Item {
                 r: R {
                     x,
@@ -1154,7 +1207,7 @@ impl Editor {
                 let label = if self.text_style == TextStyle::Plain {
                     "Aa"
                 } else {
-                    "Etiqueta"
+                    crate::i18n::tr("Etiqueta", "Label")
                 };
                 let w = 84.0 * s;
                 items.push(Item {
@@ -1164,7 +1217,11 @@ impl Editor {
                 });
             }
             Some(Kind::Arrow) => {
-                let label = if self.arrow_curved { "Curva" } else { "Recta" };
+                let label = if self.arrow_curved {
+                    crate::i18n::tr("Curva", "Curved")
+                } else {
+                    crate::i18n::tr("Recta", "Straight")
+                };
                 let w = 84.0 * s;
                 items.push(Item {
                     r: R { x, y, w, h: btn },
@@ -1174,9 +1231,9 @@ impl Editor {
             }
             Some(Kind::Pixelate) => {
                 let label = if self.obscure == Obscure::Pixelate {
-                    "Pixelar"
+                    crate::i18n::tr("Pixelar", "Pixelate")
                 } else {
-                    "Desenfocar"
+                    crate::i18n::tr("Desenfocar", "Blur")
                 };
                 let w = 104.0 * s;
                 items.push(Item {
@@ -1240,7 +1297,7 @@ impl Editor {
                 h: small,
             },
             act: Act::Drag,
-            face: Face::Grip("Arrastrar".into()),
+            face: Face::Grip(crate::i18n::tr("Arrastrar", "Drag").into()),
         });
         let mut rx = cw - 14.0 * s;
         for (act, icon) in [
@@ -1275,7 +1332,7 @@ impl Editor {
                     h: 30.0 * s,
                 },
                 act: Act::BgNone,
-                face: Face::Secondary("Sin fondo".into()),
+                face: Face::Secondary(crate::i18n::tr("Sin fondo", "No background").into()),
             });
             yy += 30.0 * s + 22.0 * s + 8.0 * s;
             let cell = (full - 4.0 * 8.0 * s) / 5.0;
@@ -1374,27 +1431,43 @@ impl Editor {
                         .map(|v| (Act::PickSize(*v), format!("{} px", *v as u32)))
                         .collect(),
                     Popover::Style if self.active_kind() == Some(Kind::Text) => vec![
-                        (Act::PickTextStyle(TextStyle::Plain), "Texto (Aa)".into()),
-                        (Act::PickTextStyle(TextStyle::Label), "Etiqueta".into()),
+                        (
+                            Act::PickTextStyle(TextStyle::Plain),
+                            crate::i18n::tr("Texto (Aa)", "Text (Aa)").into(),
+                        ),
+                        (
+                            Act::PickTextStyle(TextStyle::Label),
+                            crate::i18n::tr("Etiqueta", "Label").into(),
+                        ),
                     ],
                     Popover::Style if self.active_kind() == Some(Kind::Arrow) => vec![
-                        (Act::PickArrowCurved(false), "Flecha recta".into()),
-                        (Act::PickArrowCurved(true), "Flecha curva".into()),
+                        (
+                            Act::PickArrowCurved(false),
+                            crate::i18n::tr("Flecha recta", "Straight arrow").into(),
+                        ),
+                        (
+                            Act::PickArrowCurved(true),
+                            crate::i18n::tr("Flecha curva", "Curved arrow").into(),
+                        ),
                     ],
                     Popover::Style => vec![
                         (
                             Act::PickObscure(Obscure::Pixelate),
-                            "Pixelar (seguro)".into(),
+                            crate::i18n::tr("Pixelar (seguro)", "Pixelate (secure)").into(),
                         ),
-                        (Act::PickObscure(Obscure::Blur), "Desenfocar (suave)".into()),
+                        (
+                            Act::PickObscure(Obscure::Blur),
+                            crate::i18n::tr("Desenfocar (suave)", "Blur (smooth)").into(),
+                        ),
                     ],
                     _ => ZOOMS
                         .iter()
                         .map(|z| {
                             (
                                 Act::PickZoom(*z),
-                                z.map(|v| format!("{}%", (v * 100.0) as u32))
-                                    .unwrap_or("Ajustar a la ventana".into()),
+                                z.map(|v| format!("{}%", (v * 100.0) as u32)).unwrap_or(
+                                    crate::i18n::tr("Ajustar a la ventana", "Fit to window").into(),
+                                ),
                             )
                         })
                         .collect(),
@@ -1749,10 +1822,13 @@ impl Editor {
                 t.FillRectangle(&rectf(x - w / 2.0, y.min(y + sy * l), w, l), &g.brush);
             }
             // Size and the way out.
-            let label = format!(
-                "{} × {}   ·   Intro para recortar, Esc para cancelar",
+            let (cw_, ch_) = (
                 (c.right - c.left).round() as i32,
-                (c.bottom - c.top).round() as i32
+                (c.bottom - c.top).round() as i32,
+            );
+            let label = crate::i18n::trs(
+                format!("{cw_} × {ch_}   ·   Intro para recortar, Esc para cancelar"),
+                format!("{cw_} × {ch_}   ·   Enter to crop, Esc to cancel"),
             );
             self.pill_text(t, g, &label, (a.0 + b.0) / 2.0, b.1 + 22.0 * self.s);
         }
@@ -2025,6 +2101,25 @@ impl Editor {
             if let Some(msg) = &self.flash {
                 self.pill_text(t, g, msg, cw / 2.0, ch - self.bottom_h() - 24.0 * s);
             }
+
+            // The name of the button under the pointer: below a toolbar
+            // button, above one in the bottom bar.
+            if self.popover.is_none() && self.drag == Drag::None {
+                let hovered = self.items.iter().find(|i| i.r.contains(self.mouse));
+                if let Some((item, name)) = hovered.and_then(|i| button_name(i.act).map(|n| (i, n)))
+                {
+                    let below = item.r.y < ch / 2.0;
+                    let y = if below {
+                        item.r.y + item.r.h + 20.0 * s
+                    } else {
+                        item.r.y - 20.0 * s
+                    };
+                    // Kept inside the window at its edges.
+                    let half = 8.0 * s * name.chars().count() as f32 * 0.82 / 2.0 + 24.0 * s;
+                    let x = item.r.cx().clamp(half, cw - half);
+                    self.pill_text(t, g, name, x, y);
+                }
+            }
         }
     }
 
@@ -2061,10 +2156,10 @@ impl Editor {
                 .find(|i| matches!(i.act, Act::BgFill(Fill::Color(0))))
                 .map(|i| i.r);
             if let Some(r) = first_grad {
-                heading("Degradados", r.y - 24.0 * s);
+                heading(crate::i18n::tr("Degradados", "Gradients"), r.y - 24.0 * s);
             }
             if let Some(r) = first_col {
-                heading("Colores", r.y - 24.0 * s);
+                heading(crate::i18n::tr("Colores", "Colors"), r.y - 24.0 * s);
             }
             for item in &self.items {
                 match item.act {
@@ -2107,9 +2202,13 @@ impl Editor {
                     Act::Slider(slider) => {
                         let bg = self.background.unwrap_or_default();
                         let (label, value, max) = match slider {
-                            Slider::Padding => ("Margen", bg.padding, 240.0),
-                            Slider::Radius => ("Redondeo", bg.radius, 48.0),
-                            Slider::Shadow => ("Sombra", bg.shadow, 1.0),
+                            Slider::Padding => {
+                                (crate::i18n::tr("Margen", "Padding"), bg.padding, 240.0)
+                            }
+                            Slider::Radius => {
+                                (crate::i18n::tr("Redondeo", "Rounding"), bg.radius, 48.0)
+                            }
+                            Slider::Shadow => (crate::i18n::tr("Sombra", "Shadow"), bg.shadow, 1.0),
                         };
                         let r = item.r;
                         self.text(
@@ -2518,7 +2617,11 @@ impl Editor {
                 return match self.finish() {
                     Ok(()) => After::Close,
                     Err(e) => {
-                        agent::notify("No se pudo guardar", &e, true);
+                        agent::notify(
+                            crate::i18n::tr("No se pudo guardar", "Could not save"),
+                            &e,
+                            true,
+                        );
                         After::Nothing
                     }
                 };
@@ -2527,10 +2630,19 @@ impl Editor {
             Act::Drag => return After::Drag,
             Act::Copy => match self.export() {
                 Ok(img) => match clipboard::copy_image(agent::hwnd(), &img) {
-                    Ok(()) => self.flash("Copiado al portapapeles"),
-                    Err(e) => self.flash(&format!("No se pudo copiar: {e}")),
+                    Ok(()) => self.flash(crate::i18n::tr(
+                        "Copiado al portapapeles",
+                        "Copied to the clipboard",
+                    )),
+                    Err(e) => self.flash(&crate::i18n::trs(
+                        format!("No se pudo copiar: {e}"),
+                        format!("Could not copy: {e}"),
+                    )),
                 },
-                Err(e) => self.flash(&format!("No se pudo exportar: {e}")),
+                Err(e) => self.flash(&crate::i18n::trs(
+                    format!("No se pudo exportar: {e}"),
+                    format!("Could not export: {e}"),
+                )),
             },
             Act::Pin => {
                 if let Ok(img) = self.export() {
@@ -2557,12 +2669,21 @@ impl Editor {
                                     .file_name()
                                     .map(|n| n.to_string_lossy().into_owned())
                                     .unwrap_or_default();
-                                self.flash(&format!("Guardado: {name}"));
+                                self.flash(&crate::i18n::trs(
+                                    format!("Guardado: {name}"),
+                                    format!("Saved: {name}"),
+                                ));
                             }
-                            Err(e) => self.flash(&format!("No se pudo guardar: {e}")),
+                            Err(e) => self.flash(&crate::i18n::trs(
+                                format!("No se pudo guardar: {e}"),
+                                format!("Could not save: {e}"),
+                            )),
                         }
                     }
-                    Err(e) => self.flash(&format!("No se pudo exportar: {e}")),
+                    Err(e) => self.flash(&crate::i18n::trs(
+                        format!("No se pudo exportar: {e}"),
+                        format!("Could not export: {e}"),
+                    )),
                 }
             }
             Act::Slider(_) => {}
@@ -2578,7 +2699,7 @@ impl Editor {
         }
     }
 
-    /// "Listo": the annotated capture replaces the original in the history
+    /// crate::i18n::tr("Listo", "Done"): the annotated capture replaces the original in the history
     /// (and in its quick-access card), and goes to the clipboard when the
     /// user copies captures.
     fn finish(&mut self) -> Result<(), String> {
@@ -2614,7 +2735,13 @@ impl Editor {
         let answer = unsafe {
             MessageBoxW(
                 Some(self.hwnd),
-                w!("¿Guardar las anotaciones en la captura antes de cerrar?"),
+                PCWSTR(
+                    windows::core::HSTRING::from(crate::i18n::tr(
+                        "¿Guardar las anotaciones en la captura antes de cerrar?",
+                        "Save the annotations in the capture before closing?",
+                    ))
+                    .as_ptr(),
+                ),
                 w!("ScreenShotCM"),
                 MB_YESNOCANCEL | MB_ICONQUESTION,
             )
@@ -2623,7 +2750,11 @@ impl Editor {
             match self.finish() {
                 Ok(()) => After::Close,
                 Err(e) => {
-                    agent::notify("No se pudo guardar", &e, true);
+                    agent::notify(
+                        crate::i18n::tr("No se pudo guardar", "Could not save"),
+                        &e,
+                        true,
+                    );
                     After::Nothing
                 }
             }
@@ -2635,7 +2766,7 @@ impl Editor {
     }
 }
 
-/// "Guardar como…": the common save dialog, PNG or JPEG.
+/// crate::i18n::tr("Guardar como…", "Save as…"): the common save dialog, PNG or JPEG.
 fn save_as(hwnd: HWND) {
     let Some(img) = with(hwnd, |ed| {
         ed.commit_text();
@@ -2646,7 +2777,11 @@ fn save_as(hwnd: HWND) {
     let img = match img {
         Ok(i) => i,
         Err(e) => {
-            agent::notify("No se pudo exportar", &e, true);
+            agent::notify(
+                crate::i18n::tr("No se pudo exportar", "Could not export"),
+                &e,
+                true,
+            );
             return;
         }
     };
@@ -2706,14 +2841,21 @@ fn save_as(hwnd: HWND) {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                ed.flash(&format!("Guardado: {name}"));
+                ed.flash(&crate::i18n::trs(
+                    format!("Guardado: {name}"),
+                    format!("Saved: {name}"),
+                ));
             });
         }
-        Err(e) => agent::notify("No se pudo guardar", &e.to_string(), true),
+        Err(e) => agent::notify(
+            crate::i18n::tr("No se pudo guardar", "Could not save"),
+            &e.to_string(),
+            true,
+        ),
     }
 }
 
-/// "Arrastrar": the picture as a file, dragged into whatever takes files.
+/// crate::i18n::tr("Arrastrar", "Drag"): the picture as a file, dragged into whatever takes files.
 fn drag_out(hwnd: HWND) {
     let Some(Ok(img)) = with(hwnd, |ed| {
         ed.commit_text();

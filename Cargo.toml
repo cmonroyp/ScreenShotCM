@@ -1,6 +1,6 @@
 [package]
 name = "screenshotcm"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 description = "ScreenShotCM — screenshots and annotation for Windows"
 license = "Proprietary"
@@ -13,7 +13,11 @@ publish = false
 [dependencies.windows]
 version = "0.62.2"
 features = [
+    "ApplicationModel",
+    "Foundation",
+    "Win32_Storage_Packaging_Appx",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
     "Win32_Graphics_DirectWrite",

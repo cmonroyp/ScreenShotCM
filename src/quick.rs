@@ -192,8 +192,11 @@ pub fn replaced(path: &Path, image: Image) {
 pub fn restore_last() {
     let Some(path) = LAST_CLOSED.with(|l| l.borrow_mut().take()) else {
         agent::notify(
-            "Nada que restaurar",
-            "No hay ninguna captura cerrada recientemente.",
+            crate::i18n::tr("Nada que restaurar", "Nothing to restore"),
+            crate::i18n::tr(
+                "No hay ninguna captura cerrada recientemente.",
+                "No capture was closed recently.",
+            ),
             false,
         );
         return;
@@ -206,7 +209,11 @@ pub fn restore_last() {
             }
             show(img, path, (p.x, p.y));
         }
-        Err(e) => agent::notify("No se pudo restaurar", &e.to_string(), true),
+        Err(e) => agent::notify(
+            crate::i18n::tr("No se pudo restaurar", "Could not restore"),
+            &e.to_string(),
+            true,
+        ),
     }
 }
 
@@ -413,9 +420,9 @@ fn paint(card: &Card, surface: &Surface, t: &ID2D1RenderTarget, brush: &ID2D1Sol
                     );
                     if let Some(f) = &format {
                         let label: Vec<u16> = if btn == Btn::Copy {
-                            "Copiar"
+                            crate::i18n::tr("Copiar", "Copy")
                         } else {
-                            "Guardar"
+                            crate::i18n::tr("Guardar", "Save")
                         }
                         .encode_utf16()
                         .collect();
@@ -507,7 +514,11 @@ fn press(hwnd: HWND, btn: Btn) {
     match btn {
         Btn::Copy => match clipboard::copy_image(agent::hwnd(), &image) {
             Ok(()) => close(hwnd),
-            Err(e) => agent::notify("No se pudo copiar", &e, true),
+            Err(e) => agent::notify(
+                crate::i18n::tr("No se pudo copiar", "Could not copy"),
+                &e,
+                true,
+            ),
         },
         Btn::Save => {
             let settings = agent::settings();
@@ -525,7 +536,11 @@ fn press(hwnd: HWND, btn: Btn) {
                     log::info(&format!("saved {}", target.display()));
                     close(hwnd);
                 }
-                Err(e) => agent::notify("No se pudo guardar", &e.to_string(), true),
+                Err(e) => agent::notify(
+                    crate::i18n::tr("No se pudo guardar", "Could not save"),
+                    &e.to_string(),
+                    true,
+                ),
             }
         }
         Btn::Close => close(hwnd),

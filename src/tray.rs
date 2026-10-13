@@ -81,57 +81,88 @@ pub fn menu(hwnd: HWND, at: POINT, settings: &Settings) -> Option<Command> {
     let items: &[(Option<Command>, &str, &str)] = &[
         (
             Some(Command::CaptureArea),
-            "Capturar área",
+            crate::i18n::tr("Capturar área", "Capture area"),
             &settings.hotkey_area,
         ),
         (
             Some(Command::CapturePreviousArea),
-            "Capturar el área anterior",
+            crate::i18n::tr("Capturar el área anterior", "Capture previous area"),
             &settings.hotkey_previous_area,
         ),
         (
             Some(Command::CaptureWindow),
-            "Capturar ventana",
+            crate::i18n::tr("Capturar ventana", "Capture window"),
             &settings.hotkey_window,
         ),
         (
             Some(Command::CaptureFullscreen),
-            "Capturar pantalla completa",
+            crate::i18n::tr("Capturar pantalla completa", "Capture full screen"),
             &settings.hotkey_fullscreen,
         ),
-        (Some(Command::SelfTimer), "Temporizador", ""),
+        (
+            Some(Command::SelfTimer),
+            crate::i18n::tr("Temporizador", "Timer"),
+            "",
+        ),
         (None, "", ""),
         (
             Some(Command::OpenFromClipboard),
-            "Abrir imagen del portapapeles",
+            crate::i18n::tr("Abrir imagen del portapapeles", "Open image from clipboard"),
             "",
         ),
-        (Some(Command::OpenFile), "Anotar una imagen…", ""),
-        (Some(Command::OpenHistory), "Historial de capturas", ""),
+        (
+            Some(Command::OpenFile),
+            crate::i18n::tr("Anotar una imagen…", "Annotate an image…"),
+            "",
+        ),
+        (
+            Some(Command::OpenHistory),
+            crate::i18n::tr("Historial de capturas", "Capture history"),
+            "",
+        ),
         (
             Some(Command::RestoreRecentlyClosed),
-            "Restaurar la última captura cerrada",
+            crate::i18n::tr(
+                "Restaurar la última captura cerrada",
+                "Restore the last closed capture",
+            ),
             "",
         ),
         (None, "", ""),
         (
             Some(Command::UnlockPins),
-            "Desbloquear capturas fijadas",
+            crate::i18n::tr("Desbloquear capturas fijadas", "Unlock pinned captures"),
             "",
         ),
-        (Some(Command::ClosePins), "Cerrar capturas fijadas", ""),
+        (
+            Some(Command::ClosePins),
+            crate::i18n::tr("Cerrar capturas fijadas", "Close pinned captures"),
+            "",
+        ),
         (None, "", ""),
         (
             Some(Command::OpenSaveFolder),
-            "Abrir carpeta de capturas",
+            crate::i18n::tr("Abrir carpeta de capturas", "Open the captures folder"),
             "",
         ),
         (None, "", ""),
-        (Some(Command::OpenSettings), "Ajustes…", ""),
-        (Some(Command::ReloadSettings), "Recargar ajustes", ""),
-        (Some(Command::ToggleAutostart), "Iniciar con Windows", ""),
+        (
+            Some(Command::OpenSettings),
+            crate::i18n::tr("Ajustes…", "Settings…"),
+            "",
+        ),
+        (
+            Some(Command::ReloadSettings),
+            crate::i18n::tr("Recargar ajustes", "Reload settings"),
+            "",
+        ),
+        (
+            Some(Command::ToggleAutostart),
+            crate::i18n::tr("Iniciar con Windows", "Start with Windows"),
+            "",
+        ),
         (None, "", ""),
-        (Some(Command::Quit), "Salir", ""),
+        (Some(Command::Quit), crate::i18n::tr("Salir", "Quit"), ""),
     ];
     unsafe {
         let menu: HMENU = CreatePopupMenu().ok()?;
@@ -180,7 +211,7 @@ pub fn menu(hwnd: HWND, at: POINT, settings: &Settings) -> Option<Command> {
 
 /// `PrintScreen` reads better as the key's printed name.
 fn display_key(text: &str) -> String {
-    text.replace("PrintScreen", "Impr Pant")
+    text.replace("PrintScreen", crate::i18n::tr("Impr Pant", "PrtScn"))
 }
 
 impl Drop for Tray {

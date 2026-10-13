@@ -137,6 +137,41 @@ pub fn ico_file() -> Vec<u8> {
     out
 }
 
+/// The tiles and logos an MSIX package declares, written as PNGs into `dir`:
+/// the mark on transparency, the wide tile with the mark centred.
+pub fn export_store_assets(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let square = |name: &str, size: u32| -> Result<(), String> {
+        let image = crate::image::Image {
+            width: size,
+            height: size,
+            pixels: render(size),
+        };
+        crate::image::save_png_with_alpha(&image, &dir.join(name)).map_err(|e| e.to_string())
+    };
+    square("Square44x44Logo.png", 44)?;
+    square("Square150x150Logo.png", 150)?;
+    square("StoreLogo.png", 50)?;
+    // The wide tile: the mark, two thirds of the height, on transparency.
+    let (w, h, mark) = (310u32, 150u32, 100u32);
+    let icon = render(mark);
+    let mut pixels = vec![0u8; (w * h * 4) as usize];
+    let (ox, oy) = ((w - mark) / 2, (h - mark) / 2);
+    for y in 0..mark {
+        let src = (y * mark * 4) as usize;
+        let dst = (((y + oy) * w + ox) * 4) as usize;
+        pixels[dst..dst + (mark * 4) as usize]
+            .copy_from_slice(&icon[src..src + (mark * 4) as usize]);
+    }
+    let wide = crate::image::Image {
+        width: w,
+        height: h,
+        pixels,
+    };
+    crate::image::save_png_with_alpha(&wide, &dir.join("Wide310x150Logo.png"))
+        .map_err(|e| e.to_string())
+}
+
 fn png_entry(size: u32) -> Option<Vec<u8>> {
     let image = crate::image::Image {
         width: size,

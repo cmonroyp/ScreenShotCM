@@ -37,18 +37,26 @@ pub fn parse(text: &str) -> Result<Option<Chord>, String> {
             "win" | "windows" => modifiers |= MOD_WIN.0,
             _ => {
                 if vk.is_some() {
-                    return Err(format!("«{text}» tiene más de una tecla"));
+                    return Err(crate::i18n::trs(
+                        format!("«{text}» tiene más de una tecla"),
+                        format!("«{text}» has more than one key"),
+                    ));
                 }
-                vk = Some(
-                    key_code(&lower)
-                        .ok_or_else(|| format!("tecla desconocida «{part}» en «{text}»"))?,
-                );
+                vk = Some(key_code(&lower).ok_or_else(|| {
+                    crate::i18n::trs(
+                        format!("tecla desconocida «{part}» en «{text}»"),
+                        format!("unknown key «{part}» in «{text}»"),
+                    )
+                })?);
             }
         }
     }
     match vk {
         Some(vk) => Ok(Some(Chord { modifiers, vk })),
-        None => Err(format!("«{text}» no tiene tecla, solo modificadores")),
+        None => Err(crate::i18n::trs(
+            format!("«{text}» no tiene tecla, solo modificadores"),
+            format!("«{text}» has no key, only modifiers"),
+        )),
     }
 }
 
@@ -103,7 +111,10 @@ pub fn register_all(hwnd: HWND, settings: &Settings) -> Vec<String> {
             Ok(Some(chord)) => unsafe {
                 let mods = HOT_KEY_MODIFIERS(chord.modifiers | MOD_NOREPEAT.0);
                 if RegisterHotKey(Some(hwnd), i as i32 + 1, mods, chord.vk).is_err() {
-                    problems.push(format!("{text}: otro programa ya usa este atajo"));
+                    problems.push(crate::i18n::trs(
+                        format!("{text}: otro programa ya usa este atajo"),
+                        format!("{text}: another program already uses this shortcut"),
+                    ));
                 }
             },
             Err(e) => problems.push(e),
