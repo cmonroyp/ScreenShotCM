@@ -1,0 +1,68 @@
+# Builds the agent and its MSI from source, the same way as on a workstation:
+# Rust's gnullvm target linked by llvm-mingw, and WiX 5.0.2. Each tool is
+# pinned and checked by its hash, so the binary can be traced to this source
+# (the condition for free code signing).
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LLVM_MINGW_VERSION: "20261006"
+  LLVM_MINGW_SHA256: "317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a"
+  WIX_VERSION: "5.0.2"
+
+jobs:
+  build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: llvm-mingw
+        run: |
+          $name = "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64"
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_VERSION/$name.zip" -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:LLVM_MINGW_SHA256) { throw "llvm-mingw hash $hash does not match" }
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+          "LLVM_MINGW=$(Join-Path $env:RUNNER_TEMP $name)" >> $env:GITHUB_ENV
+
+      - name: WiX
+        run: |
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Test
+        run: ./scripts/cargo.ps1 test
+
+      - name: Lint
+        # Quoted: PowerShell would otherwise take '--' for itself.
+        run: ./scripts/cargo.ps1 clippy --release '--' -D warnings
+
+      - name: Build the agent and the MSI
+        run: ./installer/build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenShotCM
+          path: |
+            target/release/screenshotcm.exe
+            dist/ScreenShotCM-*.msi
+            dist/ScreenShotCM-*.msi.sha256
+          if-no-files-found: error
