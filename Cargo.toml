@@ -3,7 +3,7 @@ name = "screenshotcm"
 version = "0.3.0"
 edition = "2024"
 description = "ScreenShotCM — screenshots and annotation for Windows"
-license = "Proprietary"
+license = "GPL-3.0-or-later"
 publish = false
 
 # One dependency, on purpose: every system service — tray, hotkeys, clipboard,

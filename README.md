@@ -161,3 +161,14 @@ Una sola: [`windows`](https://crates.io/crates/windows) (MIT OR Apache-2.0).
 La bandeja, los atajos, el portapapeles, la codificación de imágenes (WIC) y
 el dibujo (Direct2D) se usan directamente desde Windows. Ver
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+## Licencia
+
+ScreenShotCM es software libre bajo la
+[GNU General Public License v3.0 o posterior](LICENSE): puedes usarlo,
+estudiarlo, modificarlo y redistribuirlo, y cualquier versión que distribuyas
+debe publicarse también con su código bajo la misma licencia.
+
+El nombre «ScreenShotCM» y su icono no están cubiertos por la licencia: una
+versión modificada debe llevar otro nombre y otro icono. Ver
+[TRADEMARKS.md](TRADEMARKS.md).

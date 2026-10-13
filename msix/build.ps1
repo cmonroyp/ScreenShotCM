@@ -39,6 +39,7 @@ if (Test-Path $stage) { Get-ChildItem $stage | Remove-Item -Recurse -Force }
 New-Item -ItemType Directory -Force (Join-Path $stage 'Assets') | Out-Null
 Copy-Item target/release/screenshotcm.exe $stage
 Copy-Item THIRD_PARTY_LICENSES.md $stage
+Copy-Item LICENSE (Join-Path $stage "LICENSE.txt")
 
 $p = Start-Process (Join-Path $stage 'screenshotcm.exe') -ArgumentList '--export-store-assets', (Join-Path $stage 'Assets') -Wait -PassThru
 if ($p.ExitCode -ne 0) { throw 'exporting the store assets failed' }

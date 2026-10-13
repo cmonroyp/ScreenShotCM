@@ -16,6 +16,7 @@ Remove-Item -Recurse -Force $payload -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $payload | Out-Null
 Copy-Item target/release/screenshotcm.exe $payload
 Copy-Item THIRD_PARTY_LICENSES.md $payload
+Copy-Item LICENSE (Join-Path $payload "LICENSE.txt")
 
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null

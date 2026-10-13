@@ -37,6 +37,7 @@
         <Component Id="Agent" Guid="2E6F0B57-6C4A-4C8E-9C3B-6A2B7D9E5F11">
           <File Id="AgentExe" Source="$(var.Payload)\screenshotcm.exe" />
           <File Id="Licences" Source="$(var.Payload)\THIRD_PARTY_LICENSES.md" />
+          <File Id="Licence" Source="$(var.Payload)\LICENSE.txt" />
           <RegistryValue Root="HKCU" Key="Software\ScreenShotCM" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
           <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
         </Component>
