@@ -102,10 +102,10 @@ en automático, del idioma de Windows.
 
 ## Rendimiento y memoria
 
-| | ScreenShotCM 0.4.2 |
+| | ScreenShotCM 0.4.3 |
 |---|---|
-| Instalador | 468 KB |
-| Programa | un solo `.exe` de 897 KB, sin DLL propias |
+| Instalador | 472 KB |
+| Programa | un solo `.exe` de 898 KB, sin DLL propias |
 | Memoria privada en reposo | 1,8 MB |
 | Hilos en reposo | 2–4 |
 
