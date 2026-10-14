@@ -102,15 +102,15 @@ en automático, del idioma de Windows.
 
 ## Rendimiento y memoria
 
-| | ScreenShotCM 0.4.0 |
+| | ScreenShotCM 0.4.1 |
 |---|---|
-| Instalador | 460 KB |
-| Programa | un solo `.exe` de 873 KB, sin DLL propias |
+| Instalador | 468 KB |
+| Programa | un solo `.exe` de 889 KB, sin DLL propias |
 | Memoria privada en reposo | 1,8 MB |
 | Hilos en reposo | 2–4 |
 
 Medido con el agente instalado y en reposo en la bandeja (`Get-Process`,
-2026-10-13).
+2026-10-14).
 
 - Las ventanas dibujan con Direct2D por software (WARP): uno por hardware
   carga en el proceso los controladores de cada GPU (130 MB en un portátil con
