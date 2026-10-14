@@ -88,10 +88,15 @@ pub fn set(enabled: bool) -> Result<(), String> {
             .into()),
         };
     }
-    let key = open(KEY_SET_VALUE).ok_or("no se pudo abrir la clave Run del registro")?;
+    // Everything that can fail before the key is open: an early return with
+    // it open would leave the handle behind.
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let key = open(KEY_SET_VALUE).ok_or(crate::i18n::tr(
+        "no se pudo abrir la clave Run del registro",
+        "could not open the registry's Run key",
+    ))?;
     let result = unsafe {
         if enabled {
-            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             // Quoted, because the install folder may contain spaces.
             let value = wide(format!("\"{}\"", exe.display()));
             let bytes = std::slice::from_raw_parts(value.as_ptr() as *const u8, value.len() * 2);

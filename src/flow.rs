@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, CreateFontW, CreateSolidBrush, DT_CENTER, DT_SINGLELINE,
-    DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FW_SEMIBOLD, FillRect, HFONT, InvalidateRect,
-    PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, CreateSolidBrush, DT_CENTER, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW,
+    EndPaint, FW_SEMIBOLD, FillRect, HFONT, InvalidateRect, PAINTSTRUCT, SelectObject, SetBkMode,
+    SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -25,7 +25,7 @@ use crate::capture;
 use crate::commands::Command;
 use crate::image::{self, Image};
 use crate::overlay::{self, Mode};
-use crate::settings::{ImageFormat, Settings};
+use crate::settings::Settings;
 use crate::util::Rect;
 use crate::{agent, clipboard, history, log};
 
@@ -124,6 +124,20 @@ fn grab_and_deliver(r: Rect) -> Result<(), String> {
     Ok(())
 }
 
+/// The workers still writing a capture's files.
+static WORKERS: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Waits for every capture still being written: the process ends with
+/// `exit`, which would otherwise cut a PNG in half — a Quit (or the
+/// installer's) just after a capture lost it from the save folder.
+pub fn finish_writing() {
+    let pending = WORKERS.lock().map(|mut w| std::mem::take(&mut *w));
+    for h in pending.unwrap_or_default() {
+        let _ = h.join();
+    }
+}
+
 /// Hands a finished capture to the user: the clipboard (set here, on the UI
 /// thread that owns it), the history and the save folder (encoded on a
 /// worker, so the next capture never waits for this one's PNG), then the
@@ -142,37 +156,39 @@ pub fn deliver(image: Image, near: (i32, i32)) {
         );
     }
     let (w, h) = (image.width, image.height);
-    let save_to = s.save_after_capture.then(|| save_path(&s));
+    let save_to = s.save_after_capture.then(|| s.clone());
     let history_days = s.history_days;
-    let format = s.image_format;
-    let quality = s.jpeg_quality;
     let hist = history::new_path();
     let for_worker = image.clone();
     let hist_worker = hist.clone();
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
         if let Some(dir) = hist_worker.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        // The card or the editor may already have written it.
-        if !hist_worker.exists()
-            && let Err(e) = image::save(&for_worker, &hist_worker, ImageFormat::Png, 100)
-        {
-            log::error(&format!("history {}: {e}", hist_worker.display()));
+        // The card or the editor may have written it meanwhile, or the user
+        // deleted it: either way it is not written over or back.
+        match image::save_new(&for_worker, &hist_worker) {
+            Ok(_) if history::was_forgotten(&hist_worker) => {
+                let _ = std::fs::remove_file(&hist_worker);
+            }
+            Ok(_) => {}
+            Err(e) => log::error(&format!("history {}: {e}", hist_worker.display())),
         }
-        if let Some(path) = save_to {
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Err(e) = image::save(&for_worker, &path, format, quality) {
-                log::error(&format!("save {}: {e}", path.display()));
-            }
+        if let Some(settings) = save_to
+            && let Err(e) = save_to_folder(&for_worker, &settings)
+        {
+            log::error(&format!("save: {e}"));
         }
         history::prune(history_days);
         unsafe { CoUninitialize() };
     });
+    if let Ok(mut w) = WORKERS.lock() {
+        w.retain(|h| !h.is_finished());
+        w.push(worker);
+    }
     log::info(&format!("captured {w}x{h}"));
     if s.open_editor_after_capture {
         crate::editor::open(image, Some(hist));
@@ -181,8 +197,14 @@ pub fn deliver(image: Image, near: (i32, i32)) {
     }
 }
 
+/// A free name in the save folder: "Captura 2026-10-13 a las 12.30.45.png",
+/// like a camera roll, with " (2)" and up when it is taken. A suggestion
+/// only; `reserve_save_path` holds it.
 pub fn save_path(s: &Settings) -> PathBuf {
-    // "Captura 2026-10-13 a las 12.30.45.png", like a camera roll.
+    candidates(s).find(|p| !p.exists()).unwrap_or_default()
+}
+
+fn candidates(s: &Settings) -> impl Iterator<Item = PathBuf> + '_ {
     let t = crate::log::timestamp();
     let (date, time) = t.split_once(' ').unwrap_or((&t, ""));
     let time = time.split('.').next().unwrap_or("").replace(':', ".");
@@ -191,13 +213,47 @@ pub fn save_path(s: &Settings) -> PathBuf {
         format!("Screenshot {date} at {time}"),
     );
     let ext = s.image_format.extension();
-    let mut path = s.save_dir.join(format!("{base}.{ext}"));
-    let mut n = 2;
-    while path.exists() {
-        path = s.save_dir.join(format!("{base} ({n}).{ext}"));
-        n += 1;
+    (1..).map(move |n| {
+        let name = if n == 1 {
+            format!("{base}.{ext}")
+        } else {
+            format!("{base} ({n}).{ext}")
+        };
+        s.save_dir.join(name)
+    })
+}
+
+/// Takes a name in the save folder by creating it, so two saves in the same
+/// second — two captures, or a capture and a card's Save — never both pick
+/// "(no number)" and overwrite each other. The writer replaces the empty
+/// file; a writer that fails removes it.
+fn reserve_save_path(s: &Settings) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(&s.save_dir).map_err(|e| e.to_string())?;
+    for path in candidates(s).take(1000) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
     }
-    path
+    Err(crate::i18n::tr("no hay un nombre libre", "no free name").into())
+}
+
+/// Saves `image` in the save folder, in the format of the settings, under a
+/// reserved name.
+pub fn save_to_folder(image: &Image, s: &Settings) -> Result<PathBuf, String> {
+    let path = reserve_save_path(s)?;
+    match image::save(image, &path, s.image_format, s.jpeg_quality) {
+        Ok(()) => Ok(path),
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            Err(e.to_string())
+        }
+    }
 }
 
 // --- Self-timer countdown -------------------------------------------------
@@ -259,22 +315,7 @@ fn start_countdown(area: Rect, seconds: u32) {
         };
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 215, LWA_ALPHA);
         crate::capture::exclude_from_capture(hwnd);
-        let font = CreateFontW(
-            (56.0 * scale) as i32,
-            0,
-            0,
-            0,
-            FW_SEMIBOLD.0 as i32,
-            0,
-            0,
-            0,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CLEARTYPE_QUALITY,
-            0,
-            w!("Segoe UI"),
-        );
+        let font = crate::util::ui_font((56.0 * scale) as i32, FW_SEMIBOLD);
         COUNTDOWN.with(|c| {
             *c.borrow_mut() = Some(Countdown {
                 area,
@@ -344,5 +385,32 @@ extern "system" fn countdown_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_saves_in_the_same_second_never_share_a_name() {
+        crate::image::tests::com_for_test();
+        let dir = std::env::temp_dir().join(format!("scm-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = Settings {
+            save_dir: dir.clone(),
+            ..Settings::default()
+        };
+        let img = Image {
+            width: 4,
+            height: 3,
+            pixels: vec![200; 4 * 3 * 4],
+        };
+        let a = save_to_folder(&img, &s).unwrap();
+        let b = save_to_folder(&img, &s).unwrap();
+        assert_ne!(a, b);
+        assert!(std::fs::metadata(&a).unwrap().len() > 0);
+        assert!(std::fs::metadata(&b).unwrap().len() > 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

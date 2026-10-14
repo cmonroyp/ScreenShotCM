@@ -7,6 +7,33 @@ use std::time::{Duration, SystemTime};
 
 use crate::paths;
 
+/// History files the user deleted, so the worker still encoding one does
+/// not write it back afterwards.
+static FORGOTTEN: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Deletes a history file and keeps it deleted: a capture not written yet
+/// is remembered, so its worker removes it as soon as it lands.
+pub fn forget(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Ok(mut f) = FORGOTTEN.lock() {
+                f.push(path.to_path_buf());
+            }
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether `path` was deleted by the user; asked once, by its writer.
+pub fn was_forgotten(path: &Path) -> bool {
+    FORGOTTEN.lock().is_ok_and(|mut f| {
+        let i = f.iter().position(|p| p == path);
+        i.map(|i| f.swap_remove(i)).is_some()
+    })
+}
+
 /// A sortable, collision-free name: local time to the millisecond.
 pub fn new_path() -> PathBuf {
     let t = crate::log::timestamp().replace(':', ".");

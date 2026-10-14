@@ -18,7 +18,7 @@ Rust con el objetivo `x86_64-pc-windows-gnullvm` y el enlazador de
 
 ```powershell
 ./scripts/cargo.ps1 test
-./scripts/cargo.ps1 clippy --release '--' -D warnings
+./scripts/cargo.ps1 clippy --release --all-targets '--' -D warnings
 ./scripts/cargo.ps1 build --release
 ```
 
@@ -83,6 +83,16 @@ comparan píxeles exactos: un navegador al 125 % desplaza en fracciones de
 píxel y redibuja el suavizado del texto en cada posición (Edge perdía 20 de 30
 lecturas así). La altura se limita a lo que el editor puede dibujar y a lo que
 un archivo guardado puede volver a abrirse (20 000 px y 100 megapíxeles).
+
+## Herramientas de mantenimiento
+
+- `screenshotcm.exe --export-icon assets/screenshotcm.ico` regenera el icono
+  desde el dibujo de `src/icon.rs`; hágalo tras cambiar el dibujo.
+- `screenshotcm.exe --export-store-assets <carpeta>` escribe los mosaicos del
+  paquete MSIX; lo llama `msix/build.ps1`.
+- Con `SCM_SHOW_IN_CAPTURE=1`, una compilación de depuración deja que sus
+  propias ventanas (marcos, barras, vistas previas) salgan en las capturas,
+  para poder fotografiarlas en las pruebas. La versión publicada lo ignora.
 
 ## Idiomas
 

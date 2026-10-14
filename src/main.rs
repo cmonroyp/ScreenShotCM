@@ -58,31 +58,23 @@ pub const COPYDATA_REQUEST: usize = 0x5343_4D31; // "SCM1"
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Maintenance verb for the installer build: write the icon file.
-    if args.first().map(String::as_str) == Some("--export-icon") {
-        unsafe {
-            // WIC encodes the 256-pixel PNG entry.
-            let _ = windows::Win32::System::Com::CoInitializeEx(
-                None,
-                windows::Win32::System::Com::COINIT_MULTITHREADED,
-            );
-        }
-        let ok = args
-            .get(1)
-            .is_some_and(|p| std::fs::write(p, icon::ico_file()).is_ok());
-        std::process::exit(if ok { 0 } else { 1 });
-    }
-    // And for the MSIX package: its tiles and logos.
-    if args.first().map(String::as_str) == Some("--export-store-assets") {
+    // Maintenance verbs, run by hand or by msix/build.ps1 (DEVELOPMENT.md):
+    // `--export-icon <file.ico>` rewrites assets/screenshotcm.ico from the
+    // drawing in icon.rs, `--export-store-assets <dir>` writes the MSIX tiles.
+    // Both encode PNGs with WIC, hence COM.
+    let export: Option<Export> = match args.first().map(String::as_str) {
+        Some("--export-icon") => Some(export_icon),
+        Some("--export-store-assets") => Some(export_tiles),
+        _ => None,
+    };
+    if let Some(export) = export {
         unsafe {
             let _ = windows::Win32::System::Com::CoInitializeEx(
                 None,
                 windows::Win32::System::Com::COINIT_MULTITHREADED,
             );
         }
-        let ok = args
-            .get(1)
-            .is_some_and(|d| icon::export_store_assets(std::path::Path::new(d)).is_ok());
+        let ok = args.get(1).is_some_and(|p| export(p).is_ok());
         std::process::exit(if ok { 0 } else { 1 });
     }
 
@@ -120,8 +112,20 @@ fn main() {
         std::process::id()
     ));
     let code = agent::run(request);
+    flow::finish_writing();
     log::info("exit");
     std::process::exit(code);
+}
+
+/// A maintenance verb: writes its output to the path it is given.
+type Export = fn(&str) -> Result<(), String>;
+
+fn export_icon(path: &str) -> Result<(), String> {
+    std::fs::write(path, icon::ico_file()).map_err(|e| e.to_string())
+}
+
+fn export_tiles(dir: &str) -> Result<(), String> {
+    icon::export_store_assets(std::path::Path::new(dir))
 }
 
 /// Hands the request to the running agent. A plain relaunch (no verb) has
@@ -129,11 +133,16 @@ fn main() {
 fn forward(request: &Request) {
     // Opened again from Start or a shortcut, with the agent already in the
     // tray: show the settings, so opening it always shows something.
+    // A path from a terminal is relative to that terminal's folder, which
+    // the agent does not share: send it whole.
+    let absolute = |p: &std::path::Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     let request = match request {
-        Request::None => &Request::Run(commands::Command::OpenSettings),
-        other => other,
+        Request::None => Request::Run(commands::Command::OpenSettings),
+        Request::Annotate(p) => Request::Annotate(absolute(p)),
+        Request::Pin(p) => Request::Pin(absolute(p)),
+        other => other.clone(),
     };
-    let text = commands::encode(request);
+    let text = commands::encode(&request);
     if text.is_empty() {
         return;
     }

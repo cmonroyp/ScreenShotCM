@@ -28,7 +28,7 @@ pub const CLASS: PCWSTR = w!("ScreenShotCM.Agent");
 pub struct Agent {
     pub hwnd: HWND,
     pub settings: Settings,
-    pub tray: Option<Tray>,
+    pub tray: Tray,
     taskbar_created: u32,
 }
 
@@ -52,11 +52,7 @@ pub fn hwnd() -> HWND {
 }
 
 pub fn notify(title: &str, text: &str, warning: bool) {
-    with(|a| {
-        if let Some(t) = &a.tray {
-            t.notify(title, text, warning);
-        }
-    });
+    with(|a| a.tray.notify(title, text, warning));
 }
 
 pub fn run(first: Request) -> i32 {
@@ -106,7 +102,7 @@ pub fn run(first: Request) -> i32 {
             *a.borrow_mut() = Some(Agent {
                 hwnd,
                 settings: settings.clone(),
-                tray: Some(tray),
+                tray,
                 taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
             })
         });
@@ -169,7 +165,7 @@ pub fn handle(request: Request) {
         Request::None => {}
         Request::Run(c) => dispatch(c),
         Request::Annotate(path) => match crate::image::load(&path) {
-            // A file opened from outside is edited as a copy: crate::i18n::tr("Listo", "Done") puts
+            // A file opened from outside is edited as a copy: «Listo» puts
             // the result in the history, never over the user's own file.
             Ok(img) => crate::editor::open(img, None),
             Err(e) => notify(
@@ -201,7 +197,12 @@ pub fn dispatch(command: Command) {
         Command::ReloadSettings => {
             let fresh = Settings::load();
             replace_settings(fresh);
-            register_hotkeys();
+            // With the settings open the hotkeys stay released (a field may
+            // be recording Print Screen); the window registers them as it
+            // closes.
+            if !crate::settingswin::is_open() {
+                register_hotkeys();
+            }
             notify(
                 crate::i18n::tr("Ajustes recargados", "Settings reloaded"),
                 crate::i18n::tr(
@@ -264,10 +265,15 @@ fn pick_image() -> Option<std::path::PathBuf> {
         GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OPENFILENAMEW,
     };
     let mut buffer = [0u16; 1024];
-    let filter: Vec<u16> =
-        "Imágenes\0*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic\0Todos los archivos\0*.*\0\0"
-            .encode_utf16()
-            .collect();
+    let (images, all) = (
+        crate::i18n::tr("Imágenes", "Images"),
+        crate::i18n::tr("Todos los archivos", "All files"),
+    );
+    let filter: Vec<u16> = format!(
+        "{images}\0*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic\0{all}\0*.*\0\0"
+    )
+    .encode_utf16()
+    .collect();
     let mut ofn = OPENFILENAMEW {
         lStructSize: size_of::<OPENFILENAMEW>() as u32,
         hwndOwner: hwnd(),
@@ -349,17 +355,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(1)
         }
         WM_DESTROY => {
+            // Quit in the middle of a scrolling capture: give the pointer
+            // back and close its windows.
+            crate::scroll::cancel();
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
         _ => {
             let restarted = with(|a| a.taskbar_created).unwrap_or(0);
             if restarted != 0 && msg == restarted {
-                with(|a| {
-                    if let Some(t) = &a.tray {
-                        t.add();
-                    }
-                });
+                with(|a| a.tray.add());
                 return LRESULT(0);
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }

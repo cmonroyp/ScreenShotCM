@@ -10,9 +10,8 @@ use std::sync::mpsc::{Receiver, channel};
 
 use windows::Win32::Foundation::{D2DERR_RECREATE_TARGET, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
-    D2D1_ROUNDED_RECT, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget,
-    ID2D1SolidColorBrush, ID2D1StrokeStyle,
+    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_ELLIPSE, D2D1_ROUNDED_RECT, ID2D1Bitmap,
+    ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
@@ -21,14 +20,15 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IDNO,
     IsIconic, MB_ICONWARNING, MB_YESNO, MessageBoxW, PostMessageW, RegisterClassExW, SW_RESTORE,
     SW_SHOW, SetForegroundWindow, ShowWindow, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-    WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE,
-    WNDCLASSEXW, WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
+    WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+    WM_PAINT, WM_SIZE, WNDCLASSEXW, WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{PCWSTR, w};
 
@@ -41,7 +41,6 @@ use crate::{agent, clipboard, log, paths};
 
 const CLASS: PCWSTR = w!("ScreenShotCM.History");
 const WM_THUMB: u32 = WM_APP + 40;
-const WM_MOUSELEAVE: u32 = 0x02A3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Btn {
@@ -77,6 +76,8 @@ struct History {
     scroll: f32,
     hover: Option<usize>,
     hot: Option<Btn>,
+    /// The button pressed, which acts only if released over itself.
+    pressed: Option<(usize, Btn)>,
     gpu: Option<Gpu>,
 }
 
@@ -185,7 +186,7 @@ fn create() -> Result<(), String> {
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
             lpszClassName: CLASS,
-            hIcon: crate::icon::create(32).unwrap_or_default(),
+            hIcon: crate::icon::class_icon(),
             hCursor: windows::Win32::UI::WindowsAndMessaging::LoadCursorW(
                 None,
                 windows::Win32::UI::WindowsAndMessaging::IDC_ARROW,
@@ -243,6 +244,7 @@ fn create() -> Result<(), String> {
                 scroll: 0.0,
                 hover: None,
                 hot: None,
+                pressed: None,
                 gpu: None,
             })
         });
@@ -357,19 +359,7 @@ impl History {
             let target =
                 gfx::window_target(&factory, self.hwnd, w.max(1.0) as u32, h.max(1.0) as u32)?;
             let brush = unsafe { target.CreateSolidColorBrush(&rgba(0, 0, 0, 1.0), None)? };
-            let round = unsafe {
-                factory.CreateStrokeStyle(
-                    &windows::Win32::Graphics::Direct2D::D2D1_STROKE_STYLE_PROPERTIES {
-                        startCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                        endCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                        dashCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                        lineJoin: windows::Win32::Graphics::Direct2D::D2D1_LINE_JOIN_ROUND,
-                        miterLimit: 10.0,
-                        ..Default::default()
-                    },
-                    None,
-                )?
-            };
+            let round = gfx::round_stroke(&factory, false)?;
             let title = gfx::text_format(20.0 * s, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             let small = gfx::text_format(12.5 * s, DWRITE_FONT_WEIGHT_MEDIUM)?;
             unsafe {
@@ -489,18 +479,17 @@ impl History {
                 let label: Vec<u16> = e.label.encode_utf16().collect();
                 let _ = g.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 g.brush.SetColor(&p.text_dim);
-                t.DrawText(
-                    &label,
+                crate::gfx::draw_text(
+                    t,
+                    &g.brush,
                     &g.small,
+                    &label,
                     &rectf(
                         x + 12.0 * s,
                         area.bottom + 4.0 * s,
                         cw - 24.0 * s,
                         ch - (area.bottom - y) - 8.0 * s,
                     ),
-                    &g.brush,
-                    D2D1_DRAW_TEXT_OPTIONS_NONE,
-                    Default::default(),
                 );
 
                 if hover {
@@ -550,13 +539,12 @@ impl History {
                 .encode_utf16()
                 .collect();
             g.brush.SetColor(&p.text);
-            t.DrawText(
-                &title,
-                &g.title,
-                &rectf(24.0 * s, 0.0, 300.0 * s, self.header_h()),
+            crate::gfx::draw_text(
+                t,
                 &g.brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
+                &g.title,
+                &title,
+                &rectf(24.0 * s, 0.0, 300.0 * s, self.header_h()),
             );
             let days = agent::settings().history_days;
             let sub = match self.entries.len() {
@@ -573,13 +561,12 @@ impl History {
             let units: Vec<u16> = sub.encode_utf16().collect();
             let _ = g.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             g.brush.SetColor(&p.text_dim);
-            t.DrawText(
-                &units,
-                &g.small,
-                &rectf(130.0 * s, 0.0, 400.0 * s, self.header_h()),
+            crate::gfx::draw_text(
+                t,
                 &g.brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
+                &g.small,
+                &units,
+                &rectf(130.0 * s, 0.0, 400.0 * s, self.header_h()),
             );
             if self.entries.is_empty() {
                 let units: Vec<u16> = crate::i18n::tr(
@@ -589,13 +576,12 @@ impl History {
                 .encode_utf16()
                 .collect();
                 let _ = g.small.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                t.DrawText(
-                    &units,
-                    &g.small,
-                    &rectf(0.0, self.header_h(), w, h - self.header_h()),
+                crate::gfx::draw_text(
+                    t,
                     &g.brush,
-                    D2D1_DRAW_TEXT_OPTIONS_NONE,
-                    Default::default(),
+                    &g.small,
+                    &units,
+                    &rectf(0.0, self.header_h(), w, h - self.header_h()),
                 );
             }
             if let Err(e) = t.EndDraw(None, None)
@@ -637,7 +623,16 @@ fn act(i: usize, btn: Btn) {
             if answer == IDNO {
                 return;
             }
-            let _ = std::fs::remove_file(&path);
+            // An entry leaves the list only if its file really went: it
+            // came back on the next opening otherwise.
+            if let Err(e) = crate::history::forget(&path) {
+                crate::agent::notify(
+                    crate::i18n::tr("No se pudo eliminar", "Could not delete"),
+                    &format!("{}: {e}", path.display()),
+                    true,
+                );
+                return;
+            }
             with(|h| {
                 h.entries.retain(|e| e.path != path);
                 h.thumbs.remove(&path);
@@ -731,13 +726,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     h.hot = b;
                     changed
                 });
-                let mut tme = TRACKMOUSEEVENT {
-                    cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                    dwFlags: TME_LEAVE,
-                    hwndTrack: hwnd,
-                    dwHoverTime: 0,
-                };
-                let _ = TrackMouseEvent(&mut tme);
+                crate::util::track_leave(hwnd);
                 if changed == Some(true) {
                     invalidate(hwnd);
                 }
@@ -761,9 +750,31 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 invalidate(hwnd);
                 LRESULT(0)
             }
+            WM_LBUTTONDOWN => {
+                let (x, y) = lparam_point(lparam.0);
+                with(|h| {
+                    h.pressed = match h.hit((x as f32, y as f32)) {
+                        (Some(i), Some(b)) => Some((i, b)),
+                        _ => None,
+                    }
+                });
+                SetCapture(hwnd);
+                LRESULT(0)
+            }
             WM_LBUTTONUP => {
                 let (x, y) = lparam_point(lparam.0);
-                if let Some((Some(i), Some(b))) = with(|h| h.hit((x as f32, y as f32))) {
+                let _ = ReleaseCapture();
+                // A button acts when pressed and released on itself, like
+                // every other button in the app.
+                let hit = with(|h| {
+                    let pressed = h.pressed.take()?;
+                    match h.hit((x as f32, y as f32)) {
+                        (Some(i), Some(b)) if (i, b) == pressed => Some(pressed),
+                        _ => None,
+                    }
+                })
+                .flatten();
+                if let Some((i, b)) = hit {
                     act(i, b);
                 }
                 LRESULT(0)

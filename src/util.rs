@@ -81,6 +81,50 @@ impl Rect {
     }
 }
 
+/// Asks Windows for one `WM_MOUSELEAVE` when the pointer leaves `hwnd`: how
+/// a hovered button or card knows to go back to rest.
+pub fn track_leave(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+    };
+    let mut tme = TRACKMOUSEEVENT {
+        cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+        dwFlags: TME_LEAVE,
+        hwndTrack: hwnd,
+        dwHoverTime: 0,
+    };
+    unsafe {
+        let _ = TrackMouseEvent(&mut tme);
+    }
+}
+
+/// Segoe UI for a GDI window, `height` in device units as `CreateFontW`
+/// takes it (negative: the character height). The caller deletes it.
+pub fn ui_font(
+    height: i32,
+    weight: windows::Win32::Graphics::Gdi::FONT_WEIGHT,
+) -> windows::Win32::Graphics::Gdi::HFONT {
+    use windows::Win32::Graphics::Gdi::{CLEARTYPE_QUALITY, CreateFontW};
+    unsafe {
+        CreateFontW(
+            height,
+            0,
+            0,
+            0,
+            weight.0 as i32,
+            0,
+            0,
+            0,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            CLEARTYPE_QUALITY,
+            0,
+            windows::core::w!("Segoe UI"),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

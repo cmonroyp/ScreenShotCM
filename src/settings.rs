@@ -240,14 +240,16 @@ mod tests {
 
     #[test]
     fn round_trip_keeps_every_value() {
-        let mut s = Settings::default();
-        s.copy_after_capture = false;
-        s.image_format = ImageFormat::Jpeg;
-        s.jpeg_quality = 70;
-        s.hotkey_area = "Ctrl+Alt+A".into();
-        s.hotkey_scrolling = "Ctrl+Alt+S".into();
-        s.save_dir = PathBuf::from(r"D:\Capturas con espacio");
-        s.language = Language::English;
+        let s = Settings {
+            copy_after_capture: false,
+            image_format: ImageFormat::Jpeg,
+            jpeg_quality: 70,
+            hotkey_area: "Ctrl+Alt+A".into(),
+            hotkey_scrolling: "Ctrl+Alt+S".into(),
+            save_dir: PathBuf::from(r"D:\Capturas con espacio"),
+            language: Language::English,
+            ..Settings::default()
+        };
         assert_eq!(Settings::parse(&s.serialise()), s);
     }
 

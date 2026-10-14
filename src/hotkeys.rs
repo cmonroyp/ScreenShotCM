@@ -17,7 +17,8 @@ pub struct Chord {
     pub vk: u32,
 }
 
-const VK_SNAPSHOT: u32 = 0x2C;
+/// Print Screen, as the u32 `RegisterHotKey` takes.
+const VK_SNAPSHOT: u32 = windows::Win32::UI::Input::KeyboardAndMouse::VK_SNAPSHOT.0 as u32;
 
 /// Parses `Ctrl+Shift+PrintScreen`. Case and spaces do not matter; an empty
 /// string is "no hotkey".
@@ -86,7 +87,8 @@ const BOUND: [Command; 5] = [
     Command::CaptureScrolling,
 ];
 
-fn text_for(settings: &Settings, command: Command) -> &str {
+/// The shortcut text the settings give `command`; empty when it has none.
+pub fn text_for(settings: &Settings, command: Command) -> &str {
     match command {
         Command::CaptureArea => &settings.hotkey_area,
         Command::CaptureFullscreen => &settings.hotkey_fullscreen,

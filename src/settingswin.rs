@@ -7,10 +7,10 @@ use std::cell::RefCell;
 
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, CreateFontW,
-    CreateSolidBrush, DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
-    FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, GetSysColor, GetSysColorBrush, HDC, HFONT,
-    InvalidateRect, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, CreateSolidBrush, DT_LEFT,
+    DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FW_NORMAL, FW_SEMIBOLD, FillRect,
+    FrameRect, GetSysColor, GetSysColorBrush, HDC, HFONT, InvalidateRect, PAINTSTRUCT,
+    SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -111,6 +111,12 @@ thread_local! {
     static WINDOW: RefCell<Option<Window>> = const { RefCell::new(None) };
 }
 
+/// Whether the settings are open — and so the global hotkeys released,
+/// for its shortcut fields to record keys like Print Screen.
+pub fn is_open() -> bool {
+    WINDOW.with(|w| w.try_borrow().map(|w| w.is_some()).unwrap_or(true))
+}
+
 pub fn open() {
     if let Some(hwnd) = WINDOW.with(|w| w.borrow().as_ref().map(|w| w.hwnd)) {
         unsafe {
@@ -143,7 +149,7 @@ fn create() -> Result<(), String> {
             hInstance: instance.into(),
             lpszClassName: CLASS,
             hbrBackground: GetSysColorBrush(COLOR_WINDOW),
-            hIcon: crate::icon::create(32).unwrap_or_default(),
+            hIcon: crate::icon::class_icon(),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
         };
@@ -182,38 +188,8 @@ fn create() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
         let s = GetDpiForWindow(hwnd) as f32 / 96.0;
         let px = |v: f32| (v * s).round() as i32;
-        let font = CreateFontW(
-            -px(15.0),
-            0,
-            0,
-            0,
-            FW_NORMAL.0 as i32,
-            0,
-            0,
-            0,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CLEARTYPE_QUALITY,
-            0,
-            w!("Segoe UI"),
-        );
-        let bold = CreateFontW(
-            -px(15.0),
-            0,
-            0,
-            0,
-            FW_SEMIBOLD.0 as i32,
-            0,
-            0,
-            0,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CLEARTYPE_QUALITY,
-            0,
-            w!("Segoe UI"),
-        );
+        let font = crate::util::ui_font(-px(15.0), FW_NORMAL);
+        let bold = crate::util::ui_font(-px(15.0), FW_SEMIBOLD);
 
         // While the window is open, keys go to the shortcut fields.
         hotkeys::unregister_all(agent::hwnd());
@@ -762,14 +738,20 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
         &s.hotkey_previous_area,
         &s.hotkey_scrolling,
     ];
-    for (i, a) in keys.iter().enumerate() {
-        if !a.is_empty() && keys[i + 1..].iter().any(|b| b.eq_ignore_ascii_case(a)) {
+    // Compared as keys, not as text: "Shift+Ctrl+A" and "ctrl + shift + a"
+    // are the same shortcut, and the second would fail to register.
+    let mut seen: Vec<(hotkeys::Chord, &str)> = Vec::new();
+    for a in keys {
+        let Some(chord) = hotkeys::parse(a)? else {
+            continue;
+        };
+        if let Some((_, first)) = seen.iter().find(|(c, _)| *c == chord) {
             return Err(crate::i18n::trs(
-                format!("El atajo «{a}» está repetido."),
-                format!("The shortcut «{a}» is repeated."),
+                format!("Los atajos «{first}» y «{a}» son la misma combinación."),
+                format!("The shortcuts «{first}» and «{a}» are the same keys."),
             ));
         }
-        hotkeys::parse(a)?;
+        seen.push((chord, a));
     }
     Ok(s)
 }

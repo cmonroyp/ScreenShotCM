@@ -1,6 +1,6 @@
 //! The annotation editor: a toolbar along the top
 //! (crop and background, the tools in one pill, the active tool's options,
-//! crate::i18n::tr("Guardar como…", "Save as…") and crate::i18n::tr("Listo", "Done")), the capture in the middle, and a bottom bar
+//! «Guardar como…» and «Listo»), the capture in the middle, and a bottom bar
 //! with the zoom, undo, the drag handle and pin / copy / save.
 //!
 //! The window draws its own title bar; Windows still provides the frame, the
@@ -16,10 +16,9 @@ use windows::Win32::Foundation::{
 use windows::Win32::Graphics::Direct2D::Common::{D2D_RECT_F, D2D1_COLOR_F};
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_BRUSH_PROPERTIES, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH,
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP, D2D1_LINE_JOIN_ROUND,
-    D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES, ID2D1Bitmap, ID2D1HwndRenderTarget,
-    ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle,
+    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_ROUNDED_RECT, ID2D1Bitmap, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush,
+    ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
@@ -27,8 +26,7 @@ use windows::Win32::Graphics::DirectWrite::{
 };
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, GetMonitorInfoW, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromPoint, PAINTSTRUCT, ScreenToClient,
+    BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT, ScreenToClient,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::Dialogs::{
@@ -38,7 +36,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN,
-    VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_UP,
+    VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
@@ -71,9 +69,26 @@ const WM_EDITOR_CLOSE: u32 = WM_APP + 20;
 const FLASH_TIMER: usize = 7;
 /// The narrowest editor that still shows every toolbar control: crop and
 /// background, twelve tools, the active tool's colour, size and style,
-/// "Guardar como…", crate::i18n::tr("Listo", "Done") and the window buttons. At 881 px the colour and
+/// "Guardar como…", "Listo" and the window buttons. At 881 px the colour and
 /// size had no room and were dropped.
 const MIN_W: f32 = 1080.0;
+/// The toolbar's and the bottom bar's heights, at 96 DPI.
+const TOP_H: f32 = 52.0;
+const BOTTOM_H: f32 = 48.0;
+
+/// The editor's outer size for an image: 100 % when that fits in 85 % of the
+/// work area, at least the toolbar's width and 480 px tall — but never more
+/// than the work area itself. A portrait 1080-px monitor at 125 % has less
+/// room than the minimum; a `clamp` there panicked and took the agent down.
+fn frame_size(image: (f32, f32), work: (f32, f32), s: f32) -> (f32, f32) {
+    let w = (image.0 + 80.0 * s)
+        .min(work.0 * 0.85)
+        .max((MIN_W * s).min(work.0));
+    let h = (image.1 + (TOP_H + BOTTOM_H + 80.0) * s)
+        .min(work.1 * 0.85)
+        .max((480.0 * s).min(work.1));
+    (w, h)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -296,6 +311,7 @@ struct Gpu {
     brush: ID2D1SolidColorBrush,
     bitmap: Option<ID2D1Bitmap>,
     dashed: ID2D1StrokeStyle,
+    round: ID2D1StrokeStyle,
     ui: IDWriteTextFormat,
     ui_bold: IDWriteTextFormat,
 }
@@ -308,10 +324,12 @@ struct Editor {
     painter: Painter,
     base: Rc<Image>,
     /// `base` with every pixelate applied.
-    effective: Image,
+    effective: Rc<Image>,
     shapes: Vec<Shape>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// The state before the change under way (`checkpoint`).
+    pending: Option<Snapshot>,
     tool: Tool,
     color: usize,
     stroke: f32,
@@ -332,7 +350,7 @@ struct Editor {
     popover: Option<Popover>,
     items: Vec<Item>,
     pop_items: Vec<Item>,
-    /// The history file this capture came from; crate::i18n::tr("Listo", "Done") writes it back.
+    /// The history file this capture came from; «Listo» writes it back.
     source: Option<PathBuf>,
     dirty: bool,
     flash: Option<String>,
@@ -350,7 +368,7 @@ struct Editor {
 }
 
 /// Opens an editor on `image`. `source` is the capture's file in the history,
-/// rewritten with the annotations when the user presses crate::i18n::tr("Listo", "Done").
+/// rewritten with the annotations when the user presses «Listo».
 pub fn open(image: Image, source: Option<PathBuf>) {
     if let Err(e) = create(image, source) {
         log::error(&format!("editor: {e}"));
@@ -371,7 +389,7 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
             lpszClassName: CLASS,
-            hIcon: crate::icon::create(32).unwrap_or_default(),
+            hIcon: crate::icon::class_icon(),
             ..Default::default()
         };
         RegisterClassExW(&class);
@@ -380,24 +398,7 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
         // monitor under the cursor, centred there.
         let mut cursor = POINT::default();
         let _ = GetCursorPos(&mut cursor);
-        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let _ = GetMonitorInfoW(monitor, &mut mi);
-        let work = mi.rcWork;
-        let (ww, wh) = (
-            (work.right - work.left) as f32,
-            (work.bottom - work.top) as f32,
-        );
-        let scale =
-            crate::capture::monitor_at(&crate::capture::monitors(), cursor.x, cursor.y).scale;
-        let chrome_h = (52.0 + 48.0) * scale;
-        let w = (image.width as f32 + 80.0 * scale).clamp(820.0 * scale, ww * 0.85);
-        let h = (image.height as f32 + chrome_h + 80.0 * scale).clamp(480.0 * scale, wh * 0.85);
-        let x = work.left + ((ww - w) / 2.0) as i32;
-        let y = work.top + ((wh - h) / 2.0) as i32;
+        let (x, y, w, h) = frame(cursor, (image.width as f32, image.height as f32));
 
         let state = Box::new(RefCell::new(None::<Editor>));
         let raw = Box::into_raw(state);
@@ -408,8 +409,8 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
             WS_OVERLAPPEDWINDOW,
             x,
             y,
-            w as i32,
-            h as i32,
+            w,
+            h,
             None,
             None,
             Some(instance.into()),
@@ -422,8 +423,15 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
 
         let s = GetDpiForWindow(hwnd) as f32 / 96.0;
         let image_size = (image.width as f32, image.height as f32);
-        let painter =
-            Painter::new(gfx::d2d().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        // The window exists from here on: a failure destroys it (and with
+        // it the state boxed into it) rather than leaving it hidden.
+        let painter = match gfx::d2d().and_then(Painter::new) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = DestroyWindow(hwnd);
+                return Err(e.to_string());
+            }
+        };
         let base = Rc::new(image);
         let mut ed = Editor {
             hwnd,
@@ -431,11 +439,12 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
             s,
             gpu: None,
             painter,
-            effective: (*base).clone(),
+            effective: base.clone(),
             base,
             shapes: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
+            pending: None,
             tool: Tool::Draw(Kind::Arrow),
             color: 0,
             stroke: 4.0,
@@ -504,45 +513,28 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
 /// work area of the monitor under `cursor`, centred there, and never past
 /// its edges. Measured with the window's own DPI.
 fn place(hwnd: HWND, cursor: POINT, image: (f32, f32)) {
+    let (x, y, w, h) = frame(cursor, image);
     unsafe {
-        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let _ = GetMonitorInfoW(monitor, &mut mi);
-        let work = mi.rcWork;
-        let (ww, wh) = (
-            (work.right - work.left) as f32,
-            (work.bottom - work.top) as f32,
-        );
-        let (mut dx, mut dy) = (96u32, 96u32);
-        let _ = windows::Win32::UI::HiDpi::GetDpiForMonitor(
-            monitor,
-            windows::Win32::UI::HiDpi::MDT_EFFECTIVE_DPI,
-            &mut dx,
-            &mut dy,
-        );
-        let s = dx as f32 / 96.0;
-        let chrome_h = (52.0 + 48.0) * s;
-        // At most 85 % of the work area, at least the toolbar's width — but
-        // never more than the work area itself.
-        let w = (image.0 + 80.0 * s).min(ww * 0.85).max((MIN_W * s).min(ww));
-        let h = (image.1 + chrome_h + 80.0 * s)
-            .min(wh * 0.85)
-            .max((480.0 * s).min(wh));
-        let x = work.left + ((ww - w) / 2.0).max(0.0) as i32;
-        let y = work.top + ((wh - h) / 2.0).max(0.0) as i32;
-        let _ = SetWindowPos(
-            hwnd,
-            None,
-            x,
-            y,
-            w as i32,
-            h as i32,
-            SWP_NOZORDER | SWP_NOACTIVATE,
-        );
+        let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
     }
+}
+
+/// The editor's frame on the monitor under `cursor` (`frame_size`, centred
+/// in the work area), in screen pixels.
+fn frame(cursor: POINT, image: (f32, f32)) -> (i32, i32, i32, i32) {
+    let m = crate::capture::monitor_under(cursor.x, cursor.y);
+    let work = m.work;
+    let (ww, wh) = (
+        (work.right - work.left) as f32,
+        (work.bottom - work.top) as f32,
+    );
+    let (w, h) = frame_size(image, (ww, wh), m.scale);
+    (
+        work.left + ((ww - w) / 2.0).max(0.0) as i32,
+        work.top + ((wh - h) / 2.0).max(0.0) as i32,
+        w as i32,
+        h as i32,
+    )
 }
 
 fn state(hwnd: HWND) -> Option<&'static RefCell<Option<Editor>>> {
@@ -557,7 +549,11 @@ fn state(hwnd: HWND) -> Option<&'static RefCell<Option<Editor>>> {
 fn with<R>(hwnd: HWND, f: impl FnOnce(&mut Editor) -> R) -> Option<R> {
     let cell = state(hwnd)?;
     let mut guard = cell.try_borrow_mut().ok()?;
-    guard.as_mut().map(f)
+    let ed = guard.as_mut()?;
+    let r = f(ed);
+    // Every event ends here: whatever it changed becomes one undo step.
+    ed.settle();
+    Some(r)
 }
 
 fn mark(c: usize) -> (u8, u8, u8) {
@@ -574,11 +570,11 @@ impl Editor {
     }
 
     fn top_h(&self) -> f32 {
-        52.0 * self.s
+        TOP_H * self.s
     }
 
     fn bottom_h(&self) -> f32 {
-        48.0 * self.s
+        BOTTOM_H * self.s
     }
 
     fn sidebar_w(&self) -> f32 {
@@ -659,9 +655,32 @@ impl Editor {
         }
     }
 
-    /// Records the state before a change, for undo.
+    /// Remembers the state before something that may change it. It becomes
+    /// an undo step only if it did change (`settle`): a click that merely
+    /// selects, a slider pressed and let go, a text opened and left as it
+    /// was must neither mark the capture as edited nor drop the redo list.
     fn checkpoint(&mut self) {
-        self.undo.push(self.snapshot());
+        if self.pending.is_none() {
+            self.pending = Some(self.snapshot());
+        }
+    }
+
+    /// Records what `checkpoint` remembered, once a drag or a text edit is
+    /// over, if anything changed since.
+    fn settle(&mut self) {
+        if self.drag != Drag::None || self.editing.is_some() {
+            return;
+        }
+        let Some(before) = self.pending.take() else {
+            return;
+        };
+        if Rc::ptr_eq(&before.base, &self.base)
+            && before.shapes == self.shapes
+            && before.background == self.background
+        {
+            return;
+        }
+        self.undo.push(before);
         if self.undo.len() > 200 {
             self.undo.remove(0);
         }
@@ -670,16 +689,18 @@ impl Editor {
     }
 
     fn restore(&mut self, snap: Snapshot) {
-        let base_changed = !Rc::ptr_eq(&snap.base, &self.base);
         self.base = snap.base;
         self.shapes = snap.shapes;
         self.background = snap.background;
         self.selected = None;
         self.editing = None;
-        self.refresh_pixels(base_changed);
+        self.refresh_pixels();
     }
 
     fn undo(&mut self) {
+        // A text being typed is a step of its own: close it first.
+        self.commit_text();
+        self.settle();
         if let Some(s) = self.undo.pop() {
             self.redo.push(self.snapshot());
             self.restore(s);
@@ -688,6 +709,8 @@ impl Editor {
     }
 
     fn redo(&mut self) {
+        self.commit_text();
+        self.settle();
         if let Some(s) = self.redo.pop() {
             self.undo.push(self.snapshot());
             self.restore(s);
@@ -695,9 +718,16 @@ impl Editor {
         }
     }
 
-    /// Re-applies pixelates; uploads the result on the next paint.
-    fn refresh_pixels(&mut self, _base_changed: bool) {
-        self.effective = crate::annot::obscured(&self.base, &self.shapes);
+    /// Re-applies pixelates; uploads the result on the next paint. Without
+    /// any, the capture itself is shown — shared, not copied: a copy per undo
+    /// was 400 MB each for a tall scrolling capture.
+    fn refresh_pixels(&mut self) {
+        let pixelated = self.shapes.iter().any(|s| s.kind == Kind::Pixelate);
+        self.effective = if pixelated {
+            Rc::new(crate::annot::obscured(&self.base, &self.shapes))
+        } else {
+            self.base.clone()
+        };
         if let Some(g) = &mut self.gpu {
             g.bitmap = None;
         }
@@ -906,8 +936,6 @@ impl Editor {
                 ed.anchor = pos;
             }
         };
-        const VK_HOME: u16 = 0x24;
-        const VK_END: u16 = 0x23;
         match key {
             k if k == VK_ESCAPE.0 => self.commit_text(),
             k if k == VK_RETURN.0 && c => self.commit_text(),
@@ -927,7 +955,7 @@ impl Editor {
                 };
                 go(self, pos);
             }
-            VK_HOME => {
+            k if k == VK_HOME.0 => {
                 let pos = if c {
                     0
                 } else {
@@ -935,7 +963,7 @@ impl Editor {
                 };
                 go(self, pos);
             }
-            VK_END => {
+            k if k == VK_END.0 => {
                 let pos = if c {
                     te::len(&text)
                 } else {
@@ -1047,7 +1075,7 @@ impl Editor {
         for s in &mut self.shapes {
             s.translate(-r.x as f32, -r.y as f32);
         }
-        self.refresh_pixels(true);
+        self.refresh_pixels();
         self.tool = Tool::Select;
         self.zoom = None;
         self.pan = (0.0, 0.0);
@@ -1062,7 +1090,7 @@ impl Editor {
             self.checkpoint();
             f(&mut self.shapes[i]);
             if self.shapes[i].kind == Kind::Pixelate {
-                self.refresh_pixels(false);
+                self.refresh_pixels();
             }
         }
     }
@@ -1531,20 +1559,9 @@ impl Editor {
                 h.max(1.0) as u32,
             )?;
             let brush = unsafe { target.CreateSolidColorBrush(&rgba(0, 0, 0, 1.0), None)? };
-            let dashed = unsafe {
-                self.painter.factory.CreateStrokeStyle(
-                    &D2D1_STROKE_STYLE_PROPERTIES {
-                        startCap: D2D1_CAP_STYLE_ROUND,
-                        endCap: D2D1_CAP_STYLE_ROUND,
-                        dashCap: D2D1_CAP_STYLE_ROUND,
-                        lineJoin: D2D1_LINE_JOIN_ROUND,
-                        miterLimit: 10.0,
-                        dashStyle: D2D1_DASH_STYLE_DASH,
-                        dashOffset: 0.0,
-                    },
-                    None,
-                )?
-            };
+            let dashed = gfx::round_stroke(&self.painter.factory, true)?;
+            // Made once here: the chrome is repainted on every mouse move.
+            let round = gfx::round_stroke(&self.painter.factory, false)?;
             let ui = gfx::text_format(13.0 * self.s, DWRITE_FONT_WEIGHT_MEDIUM)?;
             let ui_bold = gfx::text_format(13.0 * self.s, DWRITE_FONT_WEIGHT_SEMI_BOLD)?;
             for f in [&ui, &ui_bold] {
@@ -1557,6 +1574,7 @@ impl Editor {
                 brush,
                 bitmap: None,
                 dashed,
+                round,
                 ui,
                 ui_bold,
             })
@@ -1851,14 +1869,7 @@ impl Editor {
             );
             g.brush.SetColor(&rgba(255, 255, 255, 1.0));
             let _ = g.ui.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            t.DrawText(
-                &units,
-                &g.ui,
-                &r,
-                &g.brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
-            );
+            crate::gfx::draw_text(t, &g.brush, &g.ui, &units, &r);
             let _ = g.ui.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     }
@@ -1875,8 +1886,7 @@ impl Editor {
         let (cw, ch) = self.client();
         let s = self.s;
         let p = &self.pal;
-        let round = self.round_stroke();
-        let icons = self.icons(&round);
+        let icons = self.icons(&g.round);
         unsafe {
             // Bars.
             g.brush.SetColor(&p.chrome);
@@ -2353,7 +2363,6 @@ impl Editor {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     unsafe fn text(
         &self,
         t: &ID2D1RenderTarget,
@@ -2373,33 +2382,7 @@ impl Editor {
                 DWRITE_TEXT_ALIGNMENT_LEADING
             });
             g.brush.SetColor(&color);
-            t.DrawText(
-                &units,
-                format,
-                &r.d2d(),
-                &g.brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
-            );
-        }
-    }
-
-    fn round_stroke(&self) -> ID2D1StrokeStyle {
-        unsafe {
-            self.painter
-                .factory
-                .CreateStrokeStyle(
-                    &D2D1_STROKE_STYLE_PROPERTIES {
-                        startCap: D2D1_CAP_STYLE_ROUND,
-                        endCap: D2D1_CAP_STYLE_ROUND,
-                        dashCap: D2D1_CAP_STYLE_ROUND,
-                        lineJoin: D2D1_LINE_JOIN_ROUND,
-                        miterLimit: 10.0,
-                        ..Default::default()
-                    },
-                    None,
-                )
-                .expect("a stroke style with valid properties")
+            crate::gfx::draw_text(t, &g.brush, format, &units, &r.d2d());
         }
     }
 
@@ -2412,9 +2395,13 @@ impl Editor {
         let (w, h) = (cw.round() as u32, ch.round() as u32);
         let pad = self.padding();
         let (iw, ih) = (self.base.width as f32, self.base.height as f32);
-        crate::render::offscreen(&self.painter.factory, w, h, |t, brush| unsafe {
+        // A picture that could not be uploaded must fail the export, not
+        // come out blank: «Listo» would write the blank over the capture.
+        let mut uploaded = true;
+        let out = crate::render::offscreen(&self.painter.factory, w, h, |t, brush| unsafe {
             t.Clear(Some(&rgba(0, 0, 0, 0.0)));
             let Ok(bitmap) = gfx::bitmap(t, &self.effective) else {
+                uploaded = false;
                 return;
             };
             let img = rectf(pad, pad, iw, ih);
@@ -2484,15 +2471,30 @@ impl Editor {
             self.painter.draw_all(t, brush, &self.shapes, (iw, ih));
             t.PopAxisAlignedClip();
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+        if !uploaded {
+            return Err(crate::i18n::tr(
+                "la imagen es demasiado grande para dibujarla",
+                "the image is too large to draw",
+            )
+            .into());
+        }
+        Ok(out)
     }
 }
 
 // --- Actions --------------------------------------------------------------------
 
+/// What an action leaves to do once the editor is no longer borrowed:
+/// anything that resizes the window or runs a modal loop sends messages
+/// back to it, and those find the state still borrowed otherwise (the
+/// Maximize button left the layout at the old size).
 enum After {
     Nothing,
     Close,
+    AskClose,
+    Minimize,
+    Maximize,
     SaveAs,
     Drag,
 }
@@ -2501,13 +2503,64 @@ fn act(hwnd: HWND, action: Act) {
     let after = with(hwnd, |ed| ed.act(action)).unwrap_or(After::Nothing);
     match after {
         After::Nothing => {}
-        After::Close => unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_EDITOR_CLOSE, WPARAM(0), LPARAM(0));
+        After::Close => close(hwnd),
+        After::AskClose => ask_close(hwnd),
+        After::Minimize => unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+        },
+        After::Maximize => unsafe {
+            let zoomed = IsZoomed(hwnd).as_bool();
+            let _ = ShowWindow(hwnd, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
         },
         After::SaveAs => save_as(hwnd),
         After::Drag => drag_out(hwnd),
     }
     invalidate(hwnd);
+}
+
+fn close(hwnd: HWND) {
+    unsafe {
+        let _ = PostMessageW(Some(hwnd), WM_EDITOR_CLOSE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Closing with unsaved annotations asks first; the question is a modal
+/// loop, so it runs with the editor released.
+fn ask_close(hwnd: HWND) {
+    let dirty = with(hwnd, |ed| {
+        ed.commit_text();
+        ed.dirty
+    })
+    .unwrap_or(false);
+    if !dirty {
+        close(hwnd);
+        return;
+    }
+    let question = windows::core::HSTRING::from(crate::i18n::tr(
+        "¿Guardar las anotaciones en la captura antes de cerrar?",
+        "Save the annotations in the capture before closing?",
+    ));
+    let answer = unsafe {
+        MessageBoxW(
+            Some(hwnd),
+            PCWSTR(question.as_ptr()),
+            w!("ScreenShotCM"),
+            MB_YESNOCANCEL | MB_ICONQUESTION,
+        )
+    };
+    if answer == IDNO {
+        close(hwnd);
+    } else if answer == IDYES {
+        match with(hwnd, |ed| ed.finish()) {
+            Some(Ok(())) => close(hwnd),
+            Some(Err(e)) => agent::notify(
+                crate::i18n::tr("No se pudo guardar", "Could not save"),
+                &e,
+                true,
+            ),
+            None => {}
+        }
+    }
 }
 
 impl Editor {
@@ -2601,14 +2654,9 @@ impl Editor {
                 self.redo();
                 self.layout();
             }
-            Act::Min => unsafe {
-                let _ = ShowWindow(self.hwnd, SW_MINIMIZE);
-            },
-            Act::Max => unsafe {
-                let zoomed = IsZoomed(self.hwnd).as_bool();
-                let _ = ShowWindow(self.hwnd, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
-            },
-            Act::Close => return self.ask_close(),
+            Act::Min => return After::Minimize,
+            Act::Max => return After::Maximize,
+            Act::Close => return After::AskClose,
             Act::Done => {
                 self.commit_text();
                 if self.tool == Tool::Crop {
@@ -2649,43 +2697,29 @@ impl Editor {
                     crate::pin::open(img, None);
                 }
             }
-            Act::Save => {
-                let settings = agent::settings();
-                match self.export() {
-                    Ok(img) => {
-                        let path = flow::save_path(&settings);
-                        if let Some(dir) = path.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        match crate::image::save(
-                            &img,
-                            &path,
-                            settings.image_format,
-                            settings.jpeg_quality,
-                        ) {
-                            Ok(()) => {
-                                self.dirty = false;
-                                let name = path
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().into_owned())
-                                    .unwrap_or_default();
-                                self.flash(&crate::i18n::trs(
-                                    format!("Guardado: {name}"),
-                                    format!("Saved: {name}"),
-                                ));
-                            }
-                            Err(e) => self.flash(&crate::i18n::trs(
-                                format!("No se pudo guardar: {e}"),
-                                format!("Could not save: {e}"),
-                            )),
-                        }
+            Act::Save => match self.export() {
+                Ok(img) => match flow::save_to_folder(&img, &agent::settings()) {
+                    Ok(path) => {
+                        self.dirty = false;
+                        let name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        self.flash(&crate::i18n::trs(
+                            format!("Guardado: {name}"),
+                            format!("Saved: {name}"),
+                        ));
                     }
                     Err(e) => self.flash(&crate::i18n::trs(
-                        format!("No se pudo exportar: {e}"),
-                        format!("Could not export: {e}"),
+                        format!("No se pudo guardar: {e}"),
+                        format!("Could not save: {e}"),
                     )),
-                }
-            }
+                },
+                Err(e) => self.flash(&crate::i18n::trs(
+                    format!("No se pudo exportar: {e}"),
+                    format!("Could not export: {e}"),
+                )),
+            },
             Act::Slider(_) => {}
         }
         let _ = s;
@@ -2699,7 +2733,7 @@ impl Editor {
         }
     }
 
-    /// crate::i18n::tr("Listo", "Done"): the annotated capture replaces the original in the history
+    /// «Listo»: the annotated capture replaces the original in the history
     /// (and in its quick-access card), and goes to the clipboard when the
     /// user copies captures.
     fn finish(&mut self) -> Result<(), String> {
@@ -2726,47 +2760,9 @@ impl Editor {
         self.dirty = false;
         Ok(())
     }
-
-    fn ask_close(&mut self) -> After {
-        self.commit_text();
-        if !self.dirty {
-            return After::Close;
-        }
-        let answer = unsafe {
-            MessageBoxW(
-                Some(self.hwnd),
-                PCWSTR(
-                    windows::core::HSTRING::from(crate::i18n::tr(
-                        "¿Guardar las anotaciones en la captura antes de cerrar?",
-                        "Save the annotations in the capture before closing?",
-                    ))
-                    .as_ptr(),
-                ),
-                w!("ScreenShotCM"),
-                MB_YESNOCANCEL | MB_ICONQUESTION,
-            )
-        };
-        if answer == IDYES {
-            match self.finish() {
-                Ok(()) => After::Close,
-                Err(e) => {
-                    agent::notify(
-                        crate::i18n::tr("No se pudo guardar", "Could not save"),
-                        &e,
-                        true,
-                    );
-                    After::Nothing
-                }
-            }
-        } else if answer == IDNO {
-            After::Close
-        } else {
-            After::Nothing
-        }
-    }
 }
 
-/// crate::i18n::tr("Guardar como…", "Save as…"): the common save dialog, PNG or JPEG.
+/// «Guardar como…»: the common save dialog, PNG or JPEG.
 fn save_as(hwnd: HWND) {
     let Some(img) = with(hwnd, |ed| {
         ed.commit_text();
@@ -2795,7 +2791,11 @@ fn save_as(hwnd: HWND) {
         .encode_utf16()
         .collect();
     buffer[..name.len().min(1000)].copy_from_slice(&name[..name.len().min(1000)]);
-    let filter: Vec<u16> = "Imagen PNG (*.png)\0*.png\0Imagen JPEG (*.jpg)\0*.jpg;*.jpeg\0\0"
+    let (png, jpeg) = (
+        crate::i18n::tr("Imagen PNG", "PNG image"),
+        crate::i18n::tr("Imagen JPEG", "JPEG image"),
+    );
+    let filter: Vec<u16> = format!("{png} (*.png)\0*.png\0{jpeg} (*.jpg)\0*.jpg;*.jpeg\0\0")
         .encode_utf16()
         .collect();
     let dir = wide(&settings.save_dir);
@@ -2855,7 +2855,7 @@ fn save_as(hwnd: HWND) {
     }
 }
 
-/// crate::i18n::tr("Arrastrar", "Drag"): the picture as a file, dragged into whatever takes files.
+/// «Arrastrar»: the picture as a file, dragged into whatever takes files.
 fn drag_out(hwnd: HWND) {
     let Some(Ok(img)) = with(hwnd, |ed| {
         ed.commit_text();
@@ -3003,11 +3003,13 @@ impl Editor {
         // A click on an existing annotation selects and moves it, whatever
         // the tool. A text is edited by a double click, or by a click with
         // the text tool — the caret lands where it was clicked.
+        if self.editing.is_some() && self.shape_at(p) == self.editing {
+            return;
+        }
+        // Ending an edit can remove an empty text and shift every later
+        // index: look for the shape under the pointer only afterwards.
+        self.commit_text();
         if let Some(i) = self.shape_at(p) {
-            if self.editing == Some(i) {
-                return;
-            }
-            self.commit_text();
             let text = self.shapes.get(i).is_some_and(|s| s.kind == Kind::Text);
             if text && (double || self.tool == Tool::Draw(Kind::Text)) {
                 self.begin_edit(i, Some(p));
@@ -3164,13 +3166,12 @@ impl Editor {
             Drag::Create => {
                 if let Some(s) = self.shapes.last() {
                     if s.is_degenerate() {
+                        // Nothing was drawn, so no undo step (`settle`).
                         self.shapes.pop();
-                        // Nothing was drawn: the checkpoint is no change.
-                        self.undo.pop();
                     } else {
                         self.selected = Some(self.shapes.len() - 1);
                         if s.kind == Kind::Pixelate {
-                            self.refresh_pixels(false);
+                            self.refresh_pixels();
                         }
                     }
                 }
@@ -3183,7 +3184,7 @@ impl Editor {
                     .get(index)
                     .is_some_and(|s| s.kind == Kind::Pixelate)
                 {
-                    self.refresh_pixels(false);
+                    self.refresh_pixels();
                 }
                 None
             }
@@ -3274,7 +3275,7 @@ impl Editor {
                     self.checkpoint();
                     let removed = self.shapes.remove(i);
                     if removed.kind == Kind::Pixelate {
-                        self.refresh_pixels(false);
+                        self.refresh_pixels();
                     }
                     self.layout();
                 }
@@ -3291,7 +3292,7 @@ impl Editor {
                     self.checkpoint();
                     self.shapes[i].translate(dx, dy);
                     if self.shapes[i].kind == Kind::Pixelate {
-                        self.refresh_pixels(false);
+                        self.refresh_pixels();
                     }
                 }
             }
@@ -3573,6 +3574,31 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_frame_never_exceeds_a_small_or_portrait_work_area() {
+        // Portrait 1080-px monitor at 125 %, and 1920 px at 200 %: the
+        // minimum width is more than the room there is.
+        for (work, s) in [
+            ((1080.0, 1872.0), 1.25),
+            ((1920.0, 1032.0), 2.0),
+            ((800.0, 560.0), 1.0),
+        ] {
+            let (w, h) = frame_size((4000.0, 3000.0), work, s);
+            assert!(w <= work.0 && h <= work.1, "{work:?} at {s}: {w}x{h}");
+            let (w, h) = frame_size((10.0, 10.0), work, s);
+            assert!(
+                w <= work.0 && h <= work.1,
+                "small image, {work:?} at {s}: {w}x{h}"
+            );
+        }
+        // A roomy screen: the minimum width for the toolbar, 100 % otherwise.
+        assert_eq!(frame_size((200.0, 100.0), (2560.0, 1400.0), 1.0).0, 1080.0);
+        assert_eq!(
+            frame_size((1600.0, 700.0), (2560.0, 1400.0), 1.0),
+            (1680.0, 880.0)
+        );
+    }
 
     #[test]
     fn shift_snaps_a_line_to_the_nearest_45_degrees() {

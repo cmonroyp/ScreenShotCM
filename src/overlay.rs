@@ -18,8 +18,7 @@ use windows::Win32::Graphics::Direct2D::{
     ID2D1BitmapBrush, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL,
-    DWRITE_TEXT_METRICS, IDWriteTextFormat,
+    DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_METRICS, IDWriteTextFormat,
 };
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -38,7 +37,7 @@ use windows::core::{PCWSTR, w};
 use windows_numerics::Matrix3x2;
 
 use crate::capture::{self, Monitor};
-use crate::gfx::{self, ACCENT, point, rect, rectf, rgba};
+use crate::gfx::{self, BRAND, point, rect, rectf, rgba};
 use crate::image::Image;
 use crate::util::{Rect, lparam_point};
 
@@ -343,9 +342,9 @@ impl Overlay {
                 }
                 (Mode::Window, _) => {
                     let win = self.hovered_window();
-                    g.brush.SetColor(&rgba(ACCENT.0, ACCENT.1, ACCENT.2, 0.28));
+                    g.brush.SetColor(&rgba(BRAND.0, BRAND.1, BRAND.2, 0.28));
                     t.FillRectangle(&rect(win), &g.brush);
-                    g.brush.SetColor(&rgba(ACCENT.0, ACCENT.1, ACCENT.2, 0.9));
+                    g.brush.SetColor(&rgba(BRAND.0, BRAND.1, BRAND.2, 0.9));
                     t.DrawRectangle(
                         &rectf(
                             win.x as f32 + 1.0,
@@ -410,13 +409,12 @@ impl Overlay {
         let units: Vec<u16> = text.encode_utf16().collect();
         let draw = |dx: f32, dy: f32, color: D2D1_COLOR_F| unsafe {
             g.brush.SetColor(&color);
-            t.DrawText(
-                &units,
-                &g.small,
-                &rectf(x + dx, y + dy, 80.0 * s, 40.0 * s),
+            crate::gfx::draw_text(
+                t,
                 &g.brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                DWRITE_MEASURING_MODE_NATURAL,
+                &g.small,
+                &units,
+                &rectf(x + dx, y + dy, 80.0 * s, 40.0 * s),
             );
         };
         for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {

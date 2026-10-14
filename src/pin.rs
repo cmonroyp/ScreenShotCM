@@ -398,20 +398,10 @@ fn menu(hwnd: HWND) {
             }
         }
         SAVE => {
-            let settings = agent::settings();
-            let target = crate::flow::save_path(&settings);
-            if let Some(dir) = target.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Err(e) = crate::image::save(
-                &image,
-                &target,
-                settings.image_format,
-                settings.jpeg_quality,
-            ) {
+            if let Err(e) = crate::flow::save_to_folder(&image, &agent::settings()) {
                 agent::notify(
                     crate::i18n::tr("No se pudo guardar", "Could not save"),
-                    &e.to_string(),
+                    &e,
                     true,
                 );
             }
@@ -476,7 +466,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
                     let mut size = (0, 0);
                     adjust(hwnd, |p| {
-                        p.zoom = (p.zoom * if up { 1.1 } else { 1.0 / 1.1 }).clamp(0.1, 5.0);
+                        // As small as 24 px on its short side: a tall
+                        // scrolling capture starts below 10 %, and a fixed
+                        // 10 % floor made the wheel *grow* it.
+                        let short = p.image.width.min(p.image.height).max(1) as f32;
+                        let floor = (24.0 / short).min(1.0);
+                        p.zoom = (p.zoom * if up { 1.1 } else { 1.0 / 1.1 })
+                            .clamp(floor.min(p.zoom), 5.0);
                         size = p.size();
                     });
                     redraw(hwnd, Some((cx - size.0 / 2, cy - size.1 / 2)));

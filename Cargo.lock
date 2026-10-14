@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "screenshotcm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "windows",
  "windows-numerics",

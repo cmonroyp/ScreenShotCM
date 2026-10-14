@@ -58,7 +58,7 @@ jobs:
 
       - name: Lint
         # Quoted: PowerShell would otherwise take '--' for itself.
-        run: ./scripts/cargo.ps1 clippy --release '--' -D warnings
+        run: ./scripts/cargo.ps1 clippy --release --all-targets '--' -D warnings
 
       - name: Build the agent and the MSI
         run: ./installer/build.ps1

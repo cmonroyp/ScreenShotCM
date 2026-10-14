@@ -6,14 +6,13 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_FIGURE_END_OPEN,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_ROUNDED_RECT, ID2D1Factory, ID2D1RenderTarget,
-    ID2D1SolidColorBrush, ID2D1StrokeStyle,
+    D2D1_ELLIPSE, D2D1_ROUNDED_RECT, ID2D1Factory, ID2D1RenderTarget, ID2D1SolidColorBrush,
+    ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
-    DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER, IDWriteFactory,
+    DWRITE_FONT_WEIGHT_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
+    IDWriteFactory,
 };
-use windows::core::w;
 
 use crate::gfx::{point, rectf};
 
@@ -306,7 +305,6 @@ impl Icons<'_> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn glyph(
         &self,
         t: &ID2D1RenderTarget,
@@ -318,28 +316,21 @@ impl Icons<'_> {
         color: D2D1_COLOR_F,
     ) {
         unsafe {
-            let Ok(format) = self.dwrite.CreateTextFormat(
-                w!("Segoe UI"),
-                None,
-                DWRITE_FONT_WEIGHT_BOLD,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                size * 0.85,
-                w!(""),
-            ) else {
+            let Ok(format) =
+                crate::gfx::text_format_in(self.dwrite, size * 0.85, DWRITE_FONT_WEIGHT_BOLD)
+            else {
                 return;
             };
             let _ = format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             let _ = format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             let units: Vec<u16> = text.encode_utf16().collect();
             brush.SetColor(&color);
-            t.DrawText(
-                &units,
-                &format,
-                &rectf(cx - size, cy - size * 1.06, size * 2.0, size * 2.0),
+            crate::gfx::draw_text(
+                t,
                 brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
+                &format,
+                &units,
+                &rectf(cx - size, cy - size * 1.06, size * 2.0, size * 2.0),
             );
         }
     }

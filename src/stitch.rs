@@ -45,6 +45,13 @@ pub struct Stitcher {
     /// repetitive content (a list of identical rows).
     last_dy: usize,
     full: bool,
+    /// The pixels of the frame `previous` describes.
+    previous_frame: Vec<u8>,
+    /// Per column: how many matched frames showed it standing still while
+    /// the content moved — a window's border, rounded corner or scroll bar
+    /// inside the chosen area, which would otherwise repeat down the image.
+    chrome_votes: Vec<u32>,
+    matched: u32,
 }
 
 impl Stitcher {
@@ -67,6 +74,9 @@ impl Stitcher {
             max_rows,
             last_dy: 0,
             full: false,
+            previous_frame: first.pixels.clone(),
+            chrome_votes: vec![0; width],
+            matched: 0,
         }
     }
 
@@ -78,13 +88,77 @@ impl Stitcher {
         self.full
     }
 
-    /// The image so far.
+    /// The image so far, without the window's own edges if the area took
+    /// them in.
     pub fn image(&self) -> Image {
-        Image {
-            width: self.width as u32,
-            height: self.rows as u32,
-            pixels: self.pixels.clone(),
+        let (left, right) = self.content_columns();
+        if (left, right) == (0, self.width) {
+            return Image {
+                width: self.width as u32,
+                height: self.rows as u32,
+                pixels: self.pixels.clone(),
+            };
         }
+        let stride = self.width * 4;
+        let mut pixels = Vec::with_capacity((right - left) * 4 * self.rows);
+        for row in self.pixels.chunks_exact(stride) {
+            pixels.extend_from_slice(&row[left * 4..right * 4]);
+        }
+        Image {
+            width: (right - left) as u32,
+            height: self.rows as u32,
+            pixels,
+        }
+    }
+
+    /// The columns that moved with the content: everything between the
+    /// innermost edge column that stood still in at least half the matched
+    /// frames, on either side.
+    fn content_columns(&self) -> (usize, usize) {
+        if self.matched < 2 {
+            return (0, self.width);
+        }
+        let need = self.matched.div_ceil(2);
+        let zone = edge_zone(self.width);
+        let chrome = |x: usize| self.chrome_votes[x] >= need;
+        let left = (0..zone).rev().find(|&x| chrome(x)).map_or(0, |x| x + 1);
+        let right = (self.width - zone..self.width)
+            .find(|&x| chrome(x))
+            .unwrap_or(self.width);
+        (left, right)
+    }
+
+    /// Counts, for each edge column, whether it stood still while the
+    /// content moved `dy` rows up: as a whole it differs from itself in
+    /// place far less than from where the content went. A single pixel is no
+    /// evidence — a white background stays white wherever the text went.
+    fn vote_chrome(&mut self, frame: &Image, top: usize, end: usize, dy: usize) {
+        let stride = self.width * 4;
+        let zone = edge_zone(self.width);
+        let at = |p: &[u8], i: usize| luma(&p[i..i + 3]) as i32;
+        let (now, before) = (&frame.pixels, &self.previous_frame);
+        for x in (0..zone).chain(self.width - zone..self.width) {
+            let (mut in_place, mut with_content) = (0u64, 0u64);
+            for y in top..end {
+                if y < top + dy && y + dy >= self.height {
+                    continue;
+                }
+                let i = y * stride + x * 4;
+                // Where this row's content went (or came from) in the other frame.
+                let moved = if y >= top + dy {
+                    at(before, i) - at(now, i - dy * stride)
+                } else {
+                    at(now, i) - at(before, i + dy * stride)
+                };
+                in_place += (at(now, i) - at(before, i)).unsigned_abs() as u64;
+                with_content += moved.unsigned_abs() as u64;
+            }
+            // Something to see (a corner, an arrow, a thumb), and it stayed.
+            if with_content > 2 * in_place + 400 {
+                self.chrome_votes[x] += 1;
+            }
+        }
+        self.matched += 1;
     }
 
     /// The last `rows` rows of the image so far, for a preview.
@@ -102,7 +176,12 @@ impl Stitcher {
         if self.full {
             return Step::Full;
         }
-        if frame.width as usize != self.width || frame.height as usize != self.height {
+        // A few rows cannot show a movement, and the band arithmetic below
+        // needs room for its bottom margin (scroll.rs refuses such areas too).
+        if frame.width as usize != self.width
+            || frame.height as usize != self.height
+            || self.height < MIN_HEIGHT
+        {
             return Step::Lost;
         }
         let next = profiles(frame, self.cols);
@@ -114,13 +193,21 @@ impl Stitcher {
         let cap = h / 3;
         let still = |i: usize| distance(&next[i], &self.previous[i]) <= STILL;
         let top = (0..cap).take_while(|&i| still(i)).count();
-        let bottom = (0..cap).take_while(|&i| still(h - 1 - i)).count();
+        // New rows are never taken from the very bottom of the area: a
+        // window's lower border and rounded corners sit there, unmoved over
+        // a row that otherwise moves, and would repeat down the image. Those
+        // rows go on once, at the end, from the last frame.
+        let bottom = (0..cap)
+            .take_while(|&i| still(h - 1 - i))
+            .count()
+            .max((h / 40).clamp(4, 16));
         let dy = match offset(&self.previous, &next, top, bottom, self.last_dy) {
             Some(0) => return Step::Same,
             Some(dy) => dy,
             None => return Step::Lost,
         };
         let end = h - bottom;
+        self.vote_chrome(frame, top, end, dy);
         // The previous frame's bottom band ends the image; the new frame has
         // the same band, so it goes back on after the new rows.
         let stride = self.width * 4;
@@ -133,6 +220,8 @@ impl Stitcher {
             .extend_from_slice(&frame.pixels[end * stride..h * stride]);
         self.rows += add;
         self.previous = next;
+        self.previous_frame.clear();
+        self.previous_frame.extend_from_slice(&frame.pixels);
         self.last_dy = dy;
         if add < dy {
             self.full = true;
@@ -140,6 +229,21 @@ impl Stitcher {
         }
         Step::Added(add)
     }
+}
+
+/// How far in from each side a window's edge can be: 12 % of the width, at
+/// most 60 px (a scroll bar is about 17 px at 100 %, 34 at 200 %).
+fn edge_zone(width: usize) -> usize {
+    (width * 12 / 100).min(60)
+}
+
+/// The shortest frame worth comparing: the bottom margin (up to 16 rows)
+/// and enough moving rows to match.
+const MIN_HEIGHT: usize = 48;
+
+/// The brightness of a BGR(A) pixel: Rec. 601 weights, in 256ths.
+fn luma(px: &[u8]) -> u32 {
+    (px[2] as u32 * 77 + px[1] as u32 * 150 + px[0] as u32 * 29) >> 8
 }
 
 const SLICES: usize = 32;
@@ -170,8 +274,7 @@ fn profiles(image: &Image, cols: usize) -> Vec<Profile> {
                 );
                 let mut sum = 0u32;
                 for px in row[a * 4..b * 4].as_chunks::<4>().0 {
-                    // BGRA: Rec. 601 luma in eighths of 256.
-                    sum += (px[2] as u32 * 77 + px[1] as u32 * 150 + px[0] as u32 * 29) >> 8;
+                    sum += luma(px);
                 }
                 *slot = (sum / (b - a) as u32) as u8;
             }
@@ -202,7 +305,7 @@ fn offset(
     bottom: usize,
     hint: usize,
 ) -> Option<usize> {
-    let end = previous.len() - bottom;
+    let end = previous.len().saturating_sub(bottom);
     let moving = end.saturating_sub(top);
     if moving < 16 {
         return None;
@@ -296,7 +399,7 @@ mod tests {
         for y in 0..band {
             for yy in [y, h - 1 - y] {
                 let row = &mut img.pixels[yy as usize * stride..(yy as usize + 1) * stride];
-                for (x, px) in row.chunks_exact_mut(4).enumerate() {
+                for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let v = if (x / 9) % 2 == 0 { 30 } else { 200 };
                     px.copy_from_slice(&[v, 90, 160, 255]);
                 }
@@ -361,6 +464,74 @@ mod tests {
         );
     }
 
+    /// A view with a window's edges inside the area: a rounded corner at the
+    /// bottom left and a scroll bar's arrow at the bottom right, both fixed
+    /// on the screen while the page moves.
+    fn view_with_chrome(page: &Image, at: u32, h: u32) -> Image {
+        let mut img = view(page, at, h, 0);
+        let w = img.width as usize;
+        let stride = w * 4;
+        // The window's border and the page's margin: plain.
+        for y in 0..h as usize {
+            for x in 0..4 {
+                img.pixels[y * stride + x * 4..y * stride + x * 4 + 4]
+                    .copy_from_slice(&[250, 253, 248, 255]);
+            }
+        }
+        for y in h as usize - 8..h as usize {
+            for x in 0..4 {
+                img.pixels[y * stride + x * 4..y * stride + x * 4 + 4]
+                    .copy_from_slice(&[20, 20, 20, 255]);
+            }
+            for x in w - 9..w - 4 {
+                img.pixels[y * stride + x * 4..y * stride + x * 4 + 4]
+                    .copy_from_slice(&[60, 60, 60, 255]);
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn a_windows_own_edges_are_trimmed_not_repeated() {
+        let full = page(300, 3000);
+        let h = 400;
+        let mut s = Stitcher::new(&view_with_chrome(&full, 0, h), 10_000);
+        let mut at = 0;
+        for step in [90, 120, 75, 160, 100] {
+            at += step;
+            assert!(matches!(
+                s.push(&view_with_chrome(&full, at, h)),
+                Step::Added(_)
+            ));
+        }
+        let out = s.image();
+        let (h_out, os, ps) = (out.height as usize, out.width as usize * 4, 300 * 4);
+        // The scroll bar, whose thumb moves on its own, is trimmed.
+        assert!(out.width <= 300 - 12, "width {}", out.width);
+        // The corner and the arrow sit in the last rows only, never repeated.
+        for y in 0..h_out {
+            let row = &out.pixels[y * os..(y + 1) * os];
+            let marked = row
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| *p == [20, 20, 20, 255] || *p == [60, 60, 60, 255]);
+            assert!(
+                !marked || y >= h_out - 16,
+                "row {y} of {h_out} repeats the window's edge"
+            );
+        }
+        // What remains is the page, row for row (with or without the
+        // plain margin on the left).
+        for y in [0usize, 500, 900, h_out - 40] {
+            let page = &full.pixels[y * ps + 4 * 4..y * ps + 204 * 4];
+            let found = [0usize, 4]
+                .iter()
+                .any(|&cut| &out.pixels[y * os + (4 - cut) * 4..y * os + (204 - cut) * 4] == page);
+            assert!(found, "row {y}");
+        }
+    }
+
     #[test]
     fn scrolling_down_rebuilds_the_page() {
         let full = page(300, 2000);
@@ -379,11 +550,11 @@ mod tests {
         assert_eq!(out.height, at + h);
         let expected = full.crop(crate::util::Rect::new(0, 0, 300, (at + h) as i32));
         // Everything but the scroll bar column is the page itself.
-        let stride = 300 * 4;
+        let (os, ps) = (out.width as usize * 4, 300 * 4);
         for y in 0..out.height as usize {
             assert_eq!(
-                &out.pixels[y * stride..y * stride + 288 * 4],
-                &expected.pixels[y * stride..y * stride + 288 * 4],
+                &out.pixels[y * os..y * os + 280 * 4],
+                &expected.pixels[y * ps..y * ps + 280 * 4],
                 "row {y}"
             );
         }
@@ -399,13 +570,14 @@ mod tests {
         }
         let out = s.image();
         assert_eq!(out.height, 270 + h);
-        // The footer closes the image; the rows above it are the page.
-        let stride = 300 * 4;
+        // The footer closes the image; the rows above it are the page. (The
+        // scroll bar the view draws is trimmed, so rows are narrower.)
+        let (os, ps) = (out.width as usize * 4, 300 * 4);
         let last_page_row = (out.height - band - 1) as usize;
         let page_row = 270 + (h - band - 1) as usize;
         assert_eq!(
-            &out.pixels[last_page_row * stride..last_page_row * stride + 100 * 4],
-            &full.pixels[page_row * stride..page_row * stride + 100 * 4]
+            &out.pixels[last_page_row * os..last_page_row * os + 100 * 4],
+            &full.pixels[page_row * ps..page_row * ps + 100 * 4]
         );
     }
 
@@ -432,6 +604,15 @@ mod tests {
         assert_eq!(s.rows(), 500);
         assert!(s.is_full());
         assert_eq!(s.push(&view(&full, 400, h, 0)), Step::Full);
+    }
+
+    #[test]
+    fn a_strip_a_few_rows_tall_is_refused_not_a_panic() {
+        let full = page(300, 2000);
+        for h in [1, 3, 4, 20] {
+            let mut s = Stitcher::new(&view(&full, 0, h, 0), 1_000);
+            assert_eq!(s.push(&view(&full, 30, h, 0)), Step::Lost, "{h} rows");
+        }
     }
 
     #[test]

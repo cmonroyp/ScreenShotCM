@@ -11,20 +11,15 @@ use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_BITMAP_BRUSH_PROPERTIES, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP, D2D1_ROUNDED_RECT,
-    ID2D1RenderTarget, ID2D1SolidColorBrush,
+    D2D1_BITMAP_BRUSH_PROPERTIES, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_ELLIPSE,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_ROUNDED_RECT, ID2D1RenderTarget, ID2D1SolidColorBrush,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
 };
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
-};
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, KillTimer,
     MA_NOACTIVATE, RegisterClassExW, SM_CXDRAG, SM_CYDRAG, SW_SHOWNOACTIVATE, SetTimer, ShowWindow,
@@ -44,7 +39,6 @@ use crate::{agent, clipboard, dragdrop, flow, log};
 
 const CLASS: PCWSTR = w!("ScreenShotCM.Quick");
 const CLOSE_TIMER: usize = 3;
-const WM_MOUSELEAVE: u32 = 0x02A3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Btn {
@@ -103,19 +97,8 @@ fn create(image: Rc<Image>, path: PathBuf, near: (i32, i32)) -> Result<(), Strin
             ..Default::default()
         };
         RegisterClassExW(&class);
-        let monitor = MonitorFromPoint(
-            POINT {
-                x: near.0,
-                y: near.1,
-            },
-            MONITOR_DEFAULTTONEAREST,
-        );
-        let mut mi = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let _ = GetMonitorInfoW(monitor, &mut mi);
-        let s = crate::capture::monitor_at(&crate::capture::monitors(), near.0, near.1).scale;
+        let monitor = crate::capture::monitor_under(near.0, near.1);
+        let s = monitor.scale;
 
         let (max_w, max_h) = ((236.0 * s) as u32, (160.0 * s) as u32);
         let thumb = layered::thumbnail(&image, max_w, max_h);
@@ -144,7 +127,7 @@ fn create(image: Rc<Image>, path: PathBuf, near: (i32, i32)) -> Result<(), Strin
             image,
             thumb,
             path,
-            work: mi.rcWork,
+            work: monitor.work,
             s,
             w,
             h,
@@ -381,20 +364,7 @@ fn paint(card: &Card, surface: &Surface, t: &ID2D1RenderTarget, brush: &ID2D1Sol
             },
             brush,
         );
-        let round = surface
-            .factory
-            .CreateStrokeStyle(
-                &windows::Win32::Graphics::Direct2D::D2D1_STROKE_STYLE_PROPERTIES {
-                    startCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                    endCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                    dashCap: windows::Win32::Graphics::Direct2D::D2D1_CAP_STYLE_ROUND,
-                    lineJoin: windows::Win32::Graphics::Direct2D::D2D1_LINE_JOIN_ROUND,
-                    miterLimit: 10.0,
-                    ..Default::default()
-                },
-                None,
-            )
-            .ok();
+        let round = gfx::round_stroke(&surface.factory, false).ok();
         let dwrite = gfx::dwrite().ok();
         let format = gfx::text_format(13.0 * s, DWRITE_FONT_WEIGHT_SEMI_BOLD).ok();
         if let Some(f) = &format {
@@ -427,14 +397,7 @@ fn paint(card: &Card, surface: &Surface, t: &ID2D1RenderTarget, brush: &ID2D1Sol
                         .encode_utf16()
                         .collect();
                         brush.SetColor(&rgba(20, 20, 22, 1.0));
-                        t.DrawText(
-                            &label,
-                            f,
-                            &rectf(x, y, w, h),
-                            brush,
-                            D2D1_DRAW_TEXT_OPTIONS_NONE,
-                            Default::default(),
-                        );
+                        crate::gfx::draw_text(t, brush, f, &label, &rectf(x, y, w, h));
                     }
                 }
                 _ => {
@@ -520,29 +483,17 @@ fn press(hwnd: HWND, btn: Btn) {
                 true,
             ),
         },
-        Btn::Save => {
-            let settings = agent::settings();
-            let target = flow::save_path(&settings);
-            if let Some(dir) = target.parent() {
-                let _ = std::fs::create_dir_all(dir);
+        Btn::Save => match flow::save_to_folder(&image, &agent::settings()) {
+            Ok(target) => {
+                log::info(&format!("saved {}", target.display()));
+                close(hwnd);
             }
-            match image::save(
-                &image,
-                &target,
-                settings.image_format,
-                settings.jpeg_quality,
-            ) {
-                Ok(()) => {
-                    log::info(&format!("saved {}", target.display()));
-                    close(hwnd);
-                }
-                Err(e) => agent::notify(
-                    crate::i18n::tr("No se pudo guardar", "Could not save"),
-                    &e.to_string(),
-                    true,
-                ),
-            }
-        }
+            Err(e) => agent::notify(
+                crate::i18n::tr("No se pudo guardar", "Could not save"),
+                &e,
+                true,
+            ),
+        },
         Btn::Close => close(hwnd),
         Btn::Pin => {
             crate::pin::open((*image).clone(), Some(path));
@@ -554,7 +505,10 @@ fn press(hwnd: HWND, btn: Btn) {
             crate::editor::open((*image).clone(), Some(path));
         }
         Btn::Delete => {
-            let _ = std::fs::remove_file(&path);
+            // The history worker may still be writing it.
+            if let Err(e) = crate::history::forget(&path) {
+                log::error(&format!("delete {}: {e}", path.display()));
+            }
             close(hwnd);
             LAST_CLOSED.with(|l| *l.borrow_mut() = None);
         }
@@ -582,13 +536,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     let hot = button_at(card, (x as f32, y as f32));
                     let changed = !card.hover || hot != card.hot;
                     if !card.hover {
-                        let mut tme = TRACKMOUSEEVENT {
-                            cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                            dwFlags: TME_LEAVE,
-                            hwndTrack: hwnd,
-                            dwHoverTime: 0,
-                        };
-                        let _ = TrackMouseEvent(&mut tme);
+                        crate::util::track_leave(hwnd);
                     }
                     card.hover = true;
                     card.hot = hot;

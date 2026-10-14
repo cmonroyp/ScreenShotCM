@@ -32,7 +32,8 @@ pub enum Request {
     Run(Command),
     Annotate(PathBuf),
     Pin(PathBuf),
-    /// Started with no verb: nothing to do but be running.
+    /// Started with no verb, or with one refused (unknown, or a link naming
+    /// a file off the local drives): nothing to do but be running.
     None,
 }
 

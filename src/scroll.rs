@@ -10,21 +10,15 @@
 use std::cell::RefCell;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows::Win32::Graphics::Direct2D::{
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ROUNDED_RECT, ID2D1Factory, ID2D1RenderTarget,
-    ID2D1SolidColorBrush,
-};
+use windows::Win32::Graphics::Direct2D::{D2D1_ROUNDED_RECT, ID2D1Factory};
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
 };
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_WHEEL, MOUSEINPUT, RegisterHotKey,
-    ReleaseCapture, SendInput, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
-    UnregisterHotKey, VK_ESCAPE, VK_RETURN,
+    ReleaseCapture, SendInput, SetCapture, UnregisterHotKey, VK_ESCAPE, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, KillTimer, MA_NOACTIVATE,
@@ -34,9 +28,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::gfx::{self, ACCENT, rectf, rgba};
+use crate::gfx::{self, BRAND, rectf, rgba};
 use crate::layered::{self, Surface};
 use crate::stitch::{Step, Stitcher};
+use crate::theme::ACCENT;
 use crate::util::{Rect, lparam_point};
 use crate::{capture, log};
 
@@ -51,9 +46,13 @@ const TICK_MS: u32 = 60;
 const NOTCH_EVERY: u32 = 3;
 /// Auto-scroll stops at the end of the page: this many reads with nothing new.
 const END_AFTER: u32 = 20;
+/// An area narrower or shorter than this is captured as it is: a few rows
+/// cannot show how far the content moved.
+const MIN_SIDE: i32 = 64;
+/// Reads in a row that may fail (about three seconds) before the session ends.
+const GIVE_UP_AFTER: u32 = 50;
 const HK_DONE: i32 = 0x5C01;
 const HK_CANCEL: i32 = 0x5C02;
-const WM_MOUSELEAVE: u32 = 0x02A3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Btn {
@@ -68,6 +67,16 @@ struct Pane {
     surface: Surface,
 }
 
+/// A pane's window lives exactly as long as the pane: a session that fails
+/// half-way through `start` leaves no window behind.
+impl Drop for Pane {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DestroyWindow(self.hwnd);
+        }
+    }
+}
+
 struct Session {
     area: Rect,
     s: f32,
@@ -80,6 +89,8 @@ struct Session {
     reads: u32,
     /// Reads that added rows, that showed nothing new, that did not fit.
     counts: (u32, u32, u32),
+    /// Reads in a row that failed.
+    failures: u32,
     lost: bool,
     hot: Option<Btn>,
     pressed: Option<Btn>,
@@ -106,23 +117,14 @@ pub fn start(area: Rect) -> Result<(), String> {
         return Ok(());
     }
     let centre = (area.x + area.w / 2, area.y + area.h / 2);
-    let s = capture::monitor_at(&capture::monitors(), centre.0, centre.1).scale;
-    let work = unsafe {
-        let monitor = MonitorFromPoint(
-            POINT {
-                x: centre.0,
-                y: centre.1,
-            },
-            MONITOR_DEFAULTTONEAREST,
-        );
-        let mut mi = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let _ = GetMonitorInfoW(monitor, &mut mi);
-        mi.rcWork
-    };
+    let monitor = capture::monitor_under(centre.0, centre.1);
+    let (s, work) = (monitor.scale, monitor.work);
     let first = capture::grab(area)?;
+    // Too small to tell how far anything moved: a plain capture of it.
+    if area.h < MIN_SIDE || area.w < MIN_SIDE {
+        crate::flow::deliver(first, centre);
+        return Ok(());
+    }
     let px = |v: f32| (v * s).round() as i32;
 
     // The border: just outside the area, so it never covers a pixel of it.
@@ -130,11 +132,15 @@ pub fn start(area: Rect) -> Result<(), String> {
     let frame_rect = Rect::new(area.x - m, area.y - m, area.w + 2 * m, area.h + 2 * m);
     let frame = pane(frame_rect, true)?;
 
-    // The bar: under the area, or inside its bottom edge when there is no
-    // room below (it is excluded from capture either way).
+    // The bar (excluded from capture wherever it sits).
     let (bw, bh) = (px(420.0), px(44.0));
+    // Under the area, else above it; only an area filling the screen's
+    // height gets it inside its bottom edge, where it takes the wheel from
+    // the rows below it.
     let by = if area.bottom() + px(12.0) + bh <= work.bottom {
         area.bottom() + px(12.0)
+    } else if area.y - px(12.0) - bh >= work.top {
+        area.y - px(12.0) - bh
     } else {
         area.bottom() - bh - px(16.0)
     };
@@ -157,10 +163,9 @@ pub fn start(area: Rect) -> Result<(), String> {
         None => None,
     };
 
-    // As tall as the editor can show and a saved file can be opened again.
-    let limit = bar.surface.max_bitmap_size() as usize;
-    let by_pixels = 100_000_000 / area.w.max(1) as usize;
-    let max_rows = limit.min(20_000).min(by_pixels);
+    // No taller than a saved file can be opened again.
+    let by_pixels = (crate::image::MAX_PIXELS / area.w.max(1) as u64) as usize;
+    let max_rows = (crate::image::MAX_SIDE as usize).min(by_pixels);
 
     let session = Session {
         area,
@@ -173,6 +178,7 @@ pub fn start(area: Rect) -> Result<(), String> {
         idle: 0,
         reads: 0,
         counts: (0, 0, 0),
+        failures: 0,
         lost: false,
         hot: None,
         pressed: None,
@@ -268,7 +274,7 @@ fn render_frame(s: &Session) {
     let (w, h) = (p.surface.width as f32, p.surface.height as f32);
     let stroke = 2.0 * s.s;
     let _ = p.surface.draw(|t, brush| unsafe {
-        brush.SetColor(&rgba(ACCENT.0, ACCENT.1, ACCENT.2, 1.0));
+        brush.SetColor(&rgba(BRAND.0, BRAND.1, BRAND.2, 1.0));
         t.DrawRoundedRectangle(
             &D2D1_ROUNDED_RECT {
                 rect: rectf(stroke / 2.0, stroke / 2.0, w - stroke, h - stroke),
@@ -374,7 +380,7 @@ fn render_bar(s: &Session) {
         } else {
             rgba(255, 255, 255, 0.85)
         });
-        draw_text(t, brush, f, &status(s), rectf(8.0 * k, 0.0, text_w, h));
+        crate::gfx::draw_str(t, brush, f, &status(s), &rectf(8.0 * k, 0.0, text_w, h));
         for (btn, x, y, bw, bh) in buttons {
             let hot = s.hot == Some(btn);
             let (fill, ink) = match btn {
@@ -404,30 +410,10 @@ fn render_bar(s: &Session) {
                 Btn::Cancel => crate::i18n::tr("Cancelar", "Cancel"),
             };
             brush.SetColor(&ink);
-            draw_text(t, brush, f, label, rectf(x, y, bw, bh));
+            crate::gfx::draw_str(t, brush, f, label, &rectf(x, y, bw, bh));
         }
     });
     let _ = p.surface.present(p.hwnd, p.at, 1.0);
-}
-
-fn draw_text(
-    t: &ID2D1RenderTarget,
-    brush: &ID2D1SolidColorBrush,
-    format: &windows::Win32::Graphics::DirectWrite::IDWriteTextFormat,
-    text: &str,
-    r: windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F,
-) {
-    let wide: Vec<u16> = text.encode_utf16().collect();
-    unsafe {
-        t.DrawText(
-            &wide,
-            format,
-            &r,
-            brush,
-            D2D1_DRAW_TEXT_OPTIONS_NONE,
-            Default::default(),
-        );
-    }
 }
 
 /// The latest part of the image, scaled to the preview's width, with its
@@ -473,9 +459,19 @@ fn tick() {
     with(|s| {
         s.reads += 1;
         let frame = match capture::grab(s.area) {
-            Ok(f) => f,
+            Ok(f) => {
+                s.failures = 0;
+                f
+            }
             Err(e) => {
-                log::error(&format!("scrolling capture read: {e}"));
+                // A secure desktop (UAC) or a monitor unplugged: logged
+                // once, and after a few seconds the session ends with what
+                // it has, instead of a line every read for ever.
+                if s.failures == 0 {
+                    log::error(&format!("scrolling capture read: {e}"));
+                }
+                s.failures += 1;
+                end = s.failures >= GIVE_UP_AFTER;
                 return;
             }
         };
@@ -517,7 +513,7 @@ fn tick() {
             }
             // The wheel goes to the window under the pointer: send it only
             // while the pointer is over the area.
-            if s.area.contains(cursor.x, cursor.y) {
+            if scrolls(s, cursor) {
                 if s.reads % NOTCH_EVERY == 0 {
                     wheel_down();
                 }
@@ -550,6 +546,33 @@ fn wheel_down() {
     }
 }
 
+/// The bar's rectangle on the screen.
+fn bar_rect(s: &Session) -> Rect {
+    Rect::new(
+        s.bar.at.0,
+        s.bar.at.1,
+        s.bar.surface.width,
+        s.bar.surface.height,
+    )
+}
+
+/// Whether a wheel turned at `p` reaches the page: over the area, and not
+/// over the bar where the bar sits inside it.
+fn scrolls(s: &Session, p: POINT) -> bool {
+    s.area.contains(p.x, p.y) && !bar_rect(s).contains(p.x, p.y)
+}
+
+/// Where auto-scroll puts the pointer: the middle of the area, or of the
+/// part above the bar when the bar covers the middle.
+fn wheel_point(s: &Session) -> (i32, i32) {
+    let (x, y) = (s.area.x + s.area.w / 2, s.area.y + s.area.h / 2);
+    if bar_rect(s).contains(x, y) {
+        (x, s.area.y + (s.bar.at.1 - s.area.y) / 2)
+    } else {
+        (x, y)
+    }
+}
+
 fn toggle_auto() {
     with(|s| {
         s.auto = !s.auto;
@@ -558,11 +581,12 @@ fn toggle_auto() {
             let mut cursor = POINT::default();
             unsafe {
                 let _ = GetCursorPos(&mut cursor);
-                if !s.area.contains(cursor.x, cursor.y) {
+                if !scrolls(s, cursor) {
                     if s.home.is_none() {
                         s.home = Some(cursor);
                     }
-                    let _ = SetCursorPos(s.area.x + s.area.w / 2, s.area.y + s.area.h / 2);
+                    let (x, y) = wheel_point(s);
+                    let _ = SetCursorPos(x, y);
                 }
             }
         }
@@ -579,26 +603,30 @@ fn finish(keep: bool) {
         let _ = KillTimer(Some(s.bar.hwnd), TICK);
         let _ = UnregisterHotKey(Some(s.bar.hwnd), HK_DONE);
         let _ = UnregisterHotKey(Some(s.bar.hwnd), HK_CANCEL);
-        for p in [Some(&s.bar), Some(&s.frame), s.preview.as_ref()]
-            .into_iter()
-            .flatten()
-        {
-            let _ = DestroyWindow(p.hwnd);
-        }
+        // The windows go with their panes (`Drop`), below.
         if let Some(home) = s.home {
             let _ = SetCursorPos(home.x, home.y);
         }
     }
-    if !keep {
+    let image = keep.then(|| s.stitcher.image());
+    let (area, reads, counts) = (s.area, s.reads, s.counts);
+    // Border, bar and preview go before the capture is handed on.
+    drop(s);
+    let Some(image) = image else {
         log::info("scrolling capture cancelled");
         return;
-    }
-    let image = s.stitcher.image();
+    };
     log::info(&format!(
         "scrolling capture: {}x{} from {} reads ({} added, {} same, {} lost)",
-        image.width, image.height, s.reads, s.counts.0, s.counts.1, s.counts.2
+        image.width, image.height, reads, counts.0, counts.1, counts.2
     ));
-    crate::flow::deliver(image, (s.area.x + s.area.w / 2, s.area.y + s.area.h / 2));
+    crate::flow::deliver(image, (area.x + area.w / 2, area.y + area.h / 2));
+}
+
+/// Ends a session the agent is leaving in the middle of (Quit): the
+/// pointer goes back where auto-scroll found it and nothing is kept.
+pub fn cancel() {
+    finish(false);
 }
 
 fn press(btn: Btn) {
@@ -629,13 +657,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let (x, y) = lparam_point(lparam.0);
                 with(|s| {
                     if !s.hovering {
-                        let mut tme = TRACKMOUSEEVENT {
-                            cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                            dwFlags: TME_LEAVE,
-                            hwndTrack: hwnd,
-                            dwHoverTime: 0,
-                        };
-                        let _ = TrackMouseEvent(&mut tme);
+                        crate::util::track_leave(hwnd);
                         s.hovering = true;
                     }
                     let hot = button_at(s, (x as f32, y as f32));

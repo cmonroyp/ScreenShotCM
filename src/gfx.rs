@@ -6,14 +6,17 @@ use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1_BITMAP_PROPERTIES, D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
-    D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_PRESENT_OPTIONS_NONE, D2D1_RENDER_TARGET_PROPERTIES,
-    D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory,
-    ID2D1HwndRenderTarget, ID2D1RenderTarget,
+    D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DASH_STYLE_SOLID,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_STROKE_STYLE_PROPERTIES,
+    D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget,
+    ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-    DWRITE_FONT_WEIGHT, DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat,
+    DWRITE_FONT_WEIGHT, DWRITE_MEASURING_MODE_NATURAL, DWriteCreateFactory, IDWriteFactory,
+    IDWriteTextFormat,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::core::{Result, w};
@@ -91,8 +94,17 @@ pub fn bitmap(target: &ID2D1RenderTarget, image: &Image) -> Result<ID2D1Bitmap> 
 }
 
 pub fn text_format(size: f32, weight: DWRITE_FONT_WEIGHT) -> Result<IDWriteTextFormat> {
+    text_format_in(&dwrite()?, size, weight)
+}
+
+/// `text_format` from a factory the caller already holds.
+pub fn text_format_in(
+    factory: &IDWriteFactory,
+    size: f32,
+    weight: DWRITE_FONT_WEIGHT,
+) -> Result<IDWriteTextFormat> {
     unsafe {
-        dwrite()?.CreateTextFormat(
+        factory.CreateTextFormat(
             w!("Segoe UI"),
             None,
             weight,
@@ -135,5 +147,62 @@ pub fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-/// The brand blue, from the mark.
-pub const ACCENT: (u8, u8, u8) = (37, 99, 235);
+/// The brand blue, the mark's own (`icon.rs` draws it): what frames a
+/// selection on the screen. Buttons take `theme::ACCENT`, the system-blue
+/// accent the editor's «Listo» and every other button share.
+pub const BRAND: (u8, u8, u8) = (37, 99, 235);
+
+/// Round caps and joins, the stroke every line, outline and icon is drawn
+/// with; dashed for the crop and selection frames.
+pub fn round_stroke(factory: &ID2D1Factory, dashed: bool) -> Result<ID2D1StrokeStyle> {
+    unsafe {
+        factory.CreateStrokeStyle(
+            &D2D1_STROKE_STYLE_PROPERTIES {
+                startCap: D2D1_CAP_STYLE_ROUND,
+                endCap: D2D1_CAP_STYLE_ROUND,
+                dashCap: D2D1_CAP_STYLE_ROUND,
+                lineJoin: D2D1_LINE_JOIN_ROUND,
+                miterLimit: 10.0,
+                dashStyle: if dashed {
+                    D2D1_DASH_STYLE_DASH
+                } else {
+                    D2D1_DASH_STYLE_SOLID
+                },
+                dashOffset: 0.0,
+            },
+            None,
+        )
+    }
+}
+
+/// Draws `text` (UTF-16) in `r` with `format`, in the brush's colour.
+pub fn draw_text(
+    t: &ID2D1RenderTarget,
+    brush: &ID2D1SolidColorBrush,
+    format: &IDWriteTextFormat,
+    text: &[u16],
+    r: &D2D_RECT_F,
+) {
+    unsafe {
+        t.DrawText(
+            text,
+            format,
+            r,
+            brush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            DWRITE_MEASURING_MODE_NATURAL,
+        );
+    }
+}
+
+/// `draw_text` for a `&str`.
+pub fn draw_str(
+    t: &ID2D1RenderTarget,
+    brush: &ID2D1SolidColorBrush,
+    format: &IDWriteTextFormat,
+    text: &str,
+    r: &D2D_RECT_F,
+) {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    draw_text(t, brush, format, &units, r);
+}

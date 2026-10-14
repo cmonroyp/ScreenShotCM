@@ -78,52 +78,43 @@ impl Tray {
 /// function, so no borrow of the agent is held across the menu's own
 /// message loop.
 pub fn menu(hwnd: HWND, at: POINT, settings: &Settings) -> Option<Command> {
-    let items: &[(Option<Command>, &str, &str)] = &[
+    let items: &[(Option<Command>, &str)] = &[
         (
             Some(Command::CaptureArea),
             crate::i18n::tr("Capturar área", "Capture area"),
-            &settings.hotkey_area,
         ),
         (
             Some(Command::CapturePreviousArea),
             crate::i18n::tr("Capturar el área anterior", "Capture previous area"),
-            &settings.hotkey_previous_area,
         ),
         (
             Some(Command::CaptureWindow),
             crate::i18n::tr("Capturar ventana", "Capture window"),
-            &settings.hotkey_window,
         ),
         (
             Some(Command::CaptureFullscreen),
             crate::i18n::tr("Capturar pantalla completa", "Capture full screen"),
-            &settings.hotkey_fullscreen,
         ),
         (
             Some(Command::CaptureScrolling),
             crate::i18n::tr("Captura con desplazamiento", "Scrolling capture"),
-            &settings.hotkey_scrolling,
         ),
         (
             Some(Command::SelfTimer),
             crate::i18n::tr("Temporizador", "Timer"),
-            "",
         ),
-        (None, "", ""),
+        (None, ""),
         (
             Some(Command::OpenFromClipboard),
             crate::i18n::tr("Abrir imagen del portapapeles", "Open image from clipboard"),
-            "",
         ),
         (
             Some(Command::OpenFile),
             crate::i18n::tr("Anotar una imagen…", "Annotate an image…"),
-            "",
         ),
         (
             Some(Command::OpenHistory),
             crate::i18n::tr("Historial de capturas", "Capture history"),
-            "",
         ),
         (
             Some(Command::RestoreRecentlyClosed),
@@ -131,52 +122,46 @@ pub fn menu(hwnd: HWND, at: POINT, settings: &Settings) -> Option<Command> {
                 "Restaurar la última captura cerrada",
                 "Restore the last closed capture",
             ),
-            "",
         ),
-        (None, "", ""),
+        (None, ""),
         (
             Some(Command::UnlockPins),
             crate::i18n::tr("Desbloquear capturas fijadas", "Unlock pinned captures"),
-            "",
         ),
         (
             Some(Command::ClosePins),
             crate::i18n::tr("Cerrar capturas fijadas", "Close pinned captures"),
-            "",
         ),
-        (None, "", ""),
+        (None, ""),
         (
             Some(Command::OpenSaveFolder),
             crate::i18n::tr("Abrir carpeta de capturas", "Open the captures folder"),
-            "",
         ),
-        (None, "", ""),
+        (None, ""),
         (
             Some(Command::OpenSettings),
             crate::i18n::tr("Ajustes…", "Settings…"),
-            "",
         ),
         (
             Some(Command::ReloadSettings),
             crate::i18n::tr("Recargar ajustes", "Reload settings"),
-            "",
         ),
         (
             Some(Command::ToggleAutostart),
             crate::i18n::tr("Iniciar con Windows", "Start with Windows"),
-            "",
         ),
-        (None, "", ""),
-        (Some(Command::Quit), crate::i18n::tr("Salir", "Quit"), ""),
+        (None, ""),
+        (Some(Command::Quit), crate::i18n::tr("Salir", "Quit")),
     ];
     unsafe {
         let menu: HMENU = CreatePopupMenu().ok()?;
-        for (i, (cmd, label, key)) in items.iter().enumerate() {
+        for (i, (cmd, label)) in items.iter().enumerate() {
             match cmd {
                 None => {
                     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                 }
                 Some(c) => {
+                    let key = crate::hotkeys::text_for(settings, *c);
                     let text = if key.is_empty() {
                         label.to_string()
                     } else {

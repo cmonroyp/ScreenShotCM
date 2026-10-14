@@ -112,6 +112,8 @@ unsafe fn grab_from(screen: HDC, area: Rect) -> Result<Image, String> {
 #[derive(Clone, Copy, Debug)]
 pub struct Monitor {
     pub rect: Rect,
+    /// The monitor less the taskbar and docked bars.
+    pub work: RECT,
     /// 1.0 at 96 DPI.
     pub scale: f32,
 }
@@ -130,6 +132,7 @@ pub fn monitors() -> Vec<Monitor> {
                 let _ = GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
                 list.push(Monitor {
                     rect: Rect::new(r.left, r.top, r.right - r.left, r.bottom - r.top),
+                    work: info.rcWork,
                     scale: dx as f32 / 96.0,
                 });
             }
@@ -141,6 +144,12 @@ pub fn monitors() -> Vec<Monitor> {
         let _ = EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut list as *mut _ as isize));
     }
     list
+}
+
+/// The monitor under a screen point, or the nearest one: its area, work
+/// area and scale in one look.
+pub fn monitor_under(x: i32, y: i32) -> Monitor {
+    monitor_at(&monitors(), x, y)
 }
 
 /// The monitor holding the point, or the nearest one to it.
@@ -155,9 +164,18 @@ pub fn monitor_at(list: &[Monitor], x: i32, y: i32) -> Monitor {
             })
         })
         .copied()
-        .unwrap_or(Monitor {
-            rect: virtual_screen(),
-            scale: 1.0,
+        .unwrap_or_else(|| {
+            let v = virtual_screen();
+            Monitor {
+                rect: v,
+                work: RECT {
+                    left: v.x,
+                    top: v.y,
+                    right: v.right(),
+                    bottom: v.bottom(),
+                },
+                scale: 1.0,
+            }
         })
 }
 
@@ -216,6 +234,21 @@ unsafe fn visible_bounds(hwnd: HWND) -> Option<Rect> {
     }
 }
 
+/// Keeps our own windows (the overlay, the cards, the countdown) out of
+/// every capture, ours and other programs'. A debug build started with
+/// `SCM_SHOW_IN_CAPTURE` leaves them in, so tests can photograph them.
+pub fn exclude_from_capture(hwnd: HWND) {
+    if cfg!(debug_assertions) && std::env::var_os("SCM_SHOW_IN_CAPTURE").is_some() {
+        return;
+    }
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowDisplayAffinity(
+            hwnd,
+            windows::Win32::UI::WindowsAndMessaging::WDA_EXCLUDEFROMCAPTURE,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,30 +268,17 @@ mod tests {
         let list = [
             Monitor {
                 rect: Rect::new(0, 0, 100, 100),
+                work: RECT::default(),
                 scale: 1.0,
             },
             Monitor {
                 rect: Rect::new(100, 0, 100, 100),
+                work: RECT::default(),
                 scale: 2.0,
             },
         ];
         assert_eq!(monitor_at(&list, 150, 50).scale, 2.0);
         assert_eq!(monitor_at(&list, 500, 50).scale, 2.0);
         assert_eq!(monitor_at(&list, -50, 50).scale, 1.0);
-    }
-}
-
-/// Keeps our own windows (the overlay, the cards, the countdown) out of
-/// every capture, ours and other programs'. A debug build started with
-/// `SCM_SHOW_IN_CAPTURE` leaves them in, so tests can photograph them.
-pub fn exclude_from_capture(hwnd: HWND) {
-    if cfg!(debug_assertions) && std::env::var_os("SCM_SHOW_IN_CAPTURE").is_some() {
-        return;
-    }
-    unsafe {
-        let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowDisplayAffinity(
-            hwnd,
-            windows::Win32::UI::WindowsAndMessaging::WDA_EXCLUDEFROMCAPTURE,
-        );
     }
 }

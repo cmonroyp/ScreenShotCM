@@ -6,7 +6,12 @@
 use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
 
-const BLUE: [f32; 3] = [37.0, 99.0, 235.0];
+/// `gfx::BRAND`, as floats for the shading.
+const BLUE: [f32; 3] = [
+    crate::gfx::BRAND.0 as f32,
+    crate::gfx::BRAND.1 as f32,
+    crate::gfx::BRAND.2 as f32,
+];
 const BLUE_DARK: [f32; 3] = [29.0, 78.0, 216.0];
 
 /// Signed distance from `p` to a rounded box centred at `c`.
@@ -67,6 +72,17 @@ pub fn render(size: u32) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The 32-pixel icon window classes register with, made once and kept for
+/// the process: a class is registered again on every open of its window,
+/// only the first registration keeps its icon, and a fresh HICON each time
+/// was a GDI handle lost per opening.
+pub fn class_icon() -> HICON {
+    thread_local! {
+        static ICON: std::cell::OnceCell<HICON> = const { std::cell::OnceCell::new() };
+    }
+    ICON.with(|i| *i.get_or_init(|| create(32).unwrap_or_default()))
 }
 
 /// An HICON of `size` pixels; the caller destroys it.

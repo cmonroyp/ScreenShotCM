@@ -14,11 +14,10 @@ use windows::Win32::Graphics::Direct2D::{
     ID2D1Factory, ID2D1PathGeometry, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_BOLD,
-    DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
-    DWRITE_TEXT_METRICS, IDWriteFactory, IDWriteTextLayout,
+    DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_METRICS, IDWriteFactory, IDWriteTextLayout,
 };
-use windows::core::{Result, w};
+use windows::core::Result;
 
 use crate::gfx::{point, rectf, rgba};
 use crate::image::Image;
@@ -450,67 +449,60 @@ pub fn pixelate(img: &mut Image, x0: u32, y0: u32, x1: u32, y1: u32, block: u32)
 
 /// Three box blurs of `radius`: close to a Gaussian, linear in the area.
 /// Only pixels inside the rectangle change; the edges sample themselves.
+/// Each pass works one row or one column at a time, in place, through a
+/// buffer of one line: a whole copy of the area in floats (24 bytes a pixel)
+/// was 1.8 GB for a blur over a long scrolling capture.
 pub fn blur(img: &mut Image, x0: u32, y0: u32, x1: u32, y1: u32, radius: u32) {
-    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let (x0, y0) = (x0 as usize, y0 as usize);
+    let (w, h) = (x1 as usize - x0, y1 as usize - y0);
+    if w == 0 || h == 0 {
+        return;
+    }
     let stride = img.stride();
-    let mut buf: Vec<[f32; 3]> = Vec::with_capacity(w * h);
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y0 as usize + y) * stride + (x0 as usize + x) * 4;
-            buf.push([
-                img.pixels[i] as f32,
-                img.pixels[i + 1] as f32,
-                img.pixels[i + 2] as f32,
-            ]);
-        }
-    }
-    let r = radius as isize;
-    let mut tmp = buf.clone();
+    let r = radius as usize;
+    let mut line: Vec<[u8; 3]> = Vec::with_capacity(w.max(h));
     for _ in 0..3 {
-        box_pass(&buf, &mut tmp, w, h, r, true);
-        box_pass(&tmp, &mut buf, w, h, r, false);
-    }
-    for y in 0..h {
+        for y in 0..h {
+            let at = |x: usize| (y0 + y) * stride + (x0 + x) * 4;
+            box_line(img, &mut line, (0..w).map(at), r);
+        }
         for x in 0..w {
-            let i = (y0 as usize + y) * stride + (x0 as usize + x) * 4;
-            let p = buf[y * w + x];
-            for c in 0..3 {
-                img.pixels[i + c] = p[c].round().clamp(0.0, 255.0) as u8;
-            }
+            let at = |y: usize| (y0 + y) * stride + (x0 + x) * 4;
+            box_line(img, &mut line, (0..h).map(at), r);
         }
     }
 }
 
-fn box_pass(
-    src: &[[f32; 3]],
-    dst: &mut [[f32; 3]],
-    w: usize,
-    h: usize,
-    r: isize,
-    horizontal: bool,
+/// One box blur along the pixels at `offsets` (a row or a column).
+fn box_line(
+    img: &mut Image,
+    line: &mut Vec<[u8; 3]>,
+    offsets: impl Iterator<Item = usize> + Clone,
+    r: usize,
 ) {
-    let (outer, inner) = if horizontal { (h, w) } else { (w, h) };
-    let at = |o: usize, i: isize| -> usize {
-        let i = i.clamp(0, inner as isize - 1) as usize;
-        if horizontal { o * w + i } else { i * w + o }
-    };
-    let n = (2 * r + 1) as f32;
-    for o in 0..outer {
-        let mut sum = [0f32; 3];
-        for i in -r..=r {
-            let p = src[at(o, i)];
-            for c in 0..3 {
-                sum[c] += p[c];
-            }
+    line.clear();
+    line.extend(
+        offsets
+            .clone()
+            .map(|i| [img.pixels[i], img.pixels[i + 1], img.pixels[i + 2]]),
+    );
+    let n = line.len() as isize;
+    let at = |i: isize| line[i.clamp(0, n - 1) as usize];
+    let (ri, div) = (r as isize, (2 * r + 1) as u32);
+    let mut sum = [0u32; 3];
+    for i in -ri..=ri {
+        let p = at(i);
+        for c in 0..3 {
+            sum[c] += p[c] as u32;
         }
-        for i in 0..inner as isize {
-            let out = at(o, i);
-            dst[out] = [sum[0] / n, sum[1] / n, sum[2] / n];
-            let add = src[at(o, i + r + 1)];
-            let sub = src[at(o, i - r)];
-            for c in 0..3 {
-                sum[c] += add[c] - sub[c];
-            }
+    }
+    for (i, out) in offsets.enumerate() {
+        for c in 0..3 {
+            img.pixels[out + c] = ((sum[c] + div / 2) / div) as u8;
+        }
+        let (add, sub) = (at(i as isize + ri + 1), at(i as isize - ri));
+        for c in 0..3 {
+            sum[c] = sum[c] + add[c] as u32 - sub[c] as u32;
         }
     }
 }
@@ -793,27 +785,20 @@ impl Painter {
             t.FillEllipse(&e, brush);
             brush.SetColor(&rgba(255, 255, 255, 1.0));
             t.DrawEllipse(&e, brush, (r * 0.12).max(1.5), None);
-            let Ok(format) = self.dwrite.CreateTextFormat(
-                w!("Segoe UI"),
-                None,
-                DWRITE_FONT_WEIGHT_BOLD,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                r * 1.15,
-                w!(""),
-            ) else {
+            let Ok(format) =
+                crate::gfx::text_format_in(&self.dwrite, r * 1.15, DWRITE_FONT_WEIGHT_BOLD)
+            else {
                 return;
             };
             let _ = format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             let _ = format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             let label: Vec<u16> = s.number.to_string().encode_utf16().collect();
-            t.DrawText(
-                &label,
-                &format,
-                &rectf(s.a.0 - r, s.a.1 - r * 1.08, 2.0 * r, 2.0 * r),
+            crate::gfx::draw_text(
+                t,
                 brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                Default::default(),
+                &format,
+                &label,
+                &rectf(s.a.0 - r, s.a.1 - r * 1.08, 2.0 * r, 2.0 * r),
             );
         }
     }
@@ -861,17 +846,7 @@ impl Painter {
         &self,
         size: f32,
     ) -> Result<windows::Win32::Graphics::DirectWrite::IDWriteTextFormat> {
-        unsafe {
-            self.dwrite.CreateTextFormat(
-                w!("Segoe UI"),
-                None,
-                DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                size,
-                w!(""),
-            )
-        }
+        crate::gfx::text_format_in(&self.dwrite, size, DWRITE_FONT_WEIGHT_SEMI_BOLD)
     }
 
     fn text(&self, t: &ID2D1RenderTarget, brush: &ID2D1SolidColorBrush, s: &Shape) {
@@ -1105,6 +1080,28 @@ mod tests {
         assert_eq!(first[0], 100);
         let outside = (5 * 8 + 5) * 4;
         assert_eq!(img.pixels[outside], checker(8, 8).pixels[outside]);
+    }
+
+    #[test]
+    fn blur_keeps_a_plain_colour_and_touches_nothing_outside() {
+        let mut img = checker(20, 20);
+        let before = img.pixels.clone();
+        blur(&mut img, 5, 5, 12, 9, 4);
+        for y in 0..20 {
+            for x in 0..20 {
+                let i = (y * 20 + x) * 4;
+                if !(5..12).contains(&x) || !(5..9).contains(&y) {
+                    assert_eq!(img.pixels[i..i + 4], before[i..i + 4], "({x},{y})");
+                }
+            }
+        }
+        let mut plain = Image {
+            width: 8,
+            height: 8,
+            pixels: [37, 120, 201, 255].repeat(64),
+        };
+        blur(&mut plain, 0, 0, 8, 8, 3);
+        assert!(plain.pixels.chunks(4).all(|p| p == [37, 120, 201, 255]));
     }
 
     #[test]

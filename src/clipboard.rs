@@ -308,10 +308,12 @@ pub fn decode_dib(bytes: &[u8]) -> Option<Image> {
     let height = u32_at(8) as i32;
     let bits = u16::from_le_bytes([bytes[14], bytes[15]]);
     let compression = u32_at(16);
-    if width <= 0
+    // A BITMAPCOREHEADER (12 bytes) lays its fields out differently: not
+    // read here rather than read wrong.
+    if header_size < 40
+        || width <= 0
         || height == 0
-        || width > 32768
-        || height.abs() > 32768
+        || !crate::image::within_bounds(width as u32, height.unsigned_abs())
         || !(bits == 24 || bits == 32)
     {
         return None;
@@ -322,6 +324,13 @@ pub fn decode_dib(bytes: &[u8]) -> Option<Image> {
     } else if compression != 0 && compression != 3 {
         return None;
     }
+    // A colour table, though a 24/32-bit picture needs none, sits before the
+    // pixels when the header announces one.
+    let colours = u32_at(32) as usize;
+    if colours > 256 {
+        return None;
+    }
+    offset += colours * 4;
     let (w, h) = (width as usize, height.unsigned_abs() as usize);
     let src_stride = (w * bits as usize / 8 + 3) & !3;
     if bytes.len() < offset + src_stride * h {
@@ -372,5 +381,24 @@ mod tests {
         let mut odd = bytes.clone();
         odd[14] = 8; // 8-bit palette
         assert!(decode_dib(&odd).is_none());
+        let mut core = bytes;
+        core[0] = 12; // BITMAPCOREHEADER
+        assert!(decode_dib(&core).is_none());
+    }
+
+    #[test]
+    fn a_colour_table_before_the_pixels_is_skipped() {
+        let img = Image {
+            width: 2,
+            height: 1,
+            pixels: vec![10, 20, 30, 255, 40, 50, 60, 255],
+        };
+        let mut bytes = dib_bytes(&img);
+        // Announce two colours and put them between header and pixels.
+        bytes[32..36].copy_from_slice(&2u32.to_le_bytes());
+        let pixels = bytes.split_off(40);
+        bytes.extend_from_slice(&[0xEE; 8]);
+        bytes.extend_from_slice(&pixels);
+        assert_eq!(decode_dib(&bytes).unwrap().pixels, img.pixels);
     }
 }

@@ -91,12 +91,6 @@ impl Surface {
         }
     }
 
-    /// The tallest or widest bitmap this software target can hold — the same
-    /// rasteriser the editor and the pins draw with.
-    pub fn max_bitmap_size(&self) -> u32 {
-        unsafe { self.target.GetMaximumBitmapSize() }
-    }
-
     /// Clears to transparent and runs `paint`.
     pub fn draw(
         &self,

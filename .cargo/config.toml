@@ -1,7 +1,7 @@
 # The toolchain is Rust's gnullvm target linked by llvm-mingw: no Visual
 # Studio licence, and LLVM writes the import libraries itself (the plain gnu
 # target needs binutils' dlltool and assembler, which rustup does not ship).
-# scripts/cargo.ps1 puts llvm-mingw on PATH; see README.md.
+# scripts/cargo.ps1 puts llvm-mingw on PATH; see DEVELOPMENT.md.
 [target.x86_64-pc-windows-gnullvm]
 linker = "x86_64-w64-mingw32-clang"
 # One self-contained executable: nothing from the toolchain is shipped beside it.

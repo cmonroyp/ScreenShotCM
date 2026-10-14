@@ -19,6 +19,19 @@ use windows::core::{PCWSTR, PWSTR};
 use crate::settings::ImageFormat;
 use crate::util::{Rect, wide};
 
+/// The largest image the app opens, makes or takes from the clipboard: a
+/// file, a scrolling capture and a pasted bitmap share one bound, so what
+/// one part makes another can open again. A few hundred bytes of PNG can
+/// declare 20000×20000 — 1.6 GB to allocate; 100 megapixels (400 MB) still
+/// holds three 8K screens side by side.
+pub const MAX_SIDE: u32 = 20_000;
+pub const MAX_PIXELS: u64 = 100_000_000;
+
+/// Whether an image of `w`×`h` is within `MAX_SIDE` and `MAX_PIXELS`.
+pub fn within_bounds(w: u32, h: u32) -> bool {
+    w > 0 && h > 0 && w <= MAX_SIDE && h <= MAX_SIDE && w as u64 * h as u64 <= MAX_PIXELS
+}
+
 #[derive(Clone)]
 pub struct Image {
     pub width: u32,
@@ -84,7 +97,7 @@ pub fn save(
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("{}-{n}.partial", std::process::id()));
-    let result = encode(image, &tmp, format, jpeg_quality);
+    let result = encode(image, &tmp, format, jpeg_quality, false);
     match result {
         Ok(()) => std::fs::rename(&tmp, path).map_err(|e| {
             windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), e.to_string())
@@ -96,14 +109,33 @@ pub fn save(
     }
 }
 
+/// Like `save`, but only if nothing is at `path` when the file is ready:
+/// the history worker encodes for seconds, and in that time the editor's
+/// «Listo» may have written the annotated version there. Returns whether it
+/// wrote. A hard link publishes without replacing; where links are not
+/// supported (FAT), the check and the rename are as close as they can be.
+pub fn save_new(image: &Image, path: &Path) -> windows::core::Result<bool> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("{}-new{n}.partial", std::process::id()));
+    if let Err(e) = encode(image, &tmp, ImageFormat::Png, 100, false) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    let wrote = match std::fs::hard_link(&tmp, path) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(_) if path.exists() => false,
+        Err(_) => std::fs::rename(&tmp, path).is_ok(),
+    };
+    let _ = std::fs::remove_file(&tmp);
+    Ok(wrote)
+}
+
 /// Reads any image Windows can decode (PNG, JPEG, BMP, GIF, TIFF, …) as BGRA.
 /// Images larger than the shared page bound are refused before a pixel is
 /// allocated.
 pub fn load(path: &Path) -> windows::core::Result<Image> {
-    const MAX_SIDE: u32 = 20_000;
-    // A few hundred bytes of PNG can declare 20000×20000: 1.6 GB to allocate.
-    // 100 megapixels (400 MB) still holds three 8K screens side by side.
-    const MAX_PIXELS: u64 = 100_000_000;
     unsafe {
         let factory = wic()?;
         let p = wide(path);
@@ -125,10 +157,13 @@ pub fn load(path: &Path) -> windows::core::Result<Image> {
         )?;
         let (mut w, mut h) = (0u32, 0u32);
         converter.GetSize(&mut w, &mut h)?;
-        if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || w as u64 * h as u64 > MAX_PIXELS {
+        if !within_bounds(w, h) {
             return Err(windows::core::Error::new(
                 windows::core::HRESULT(0x80070057u32 as i32),
-                format!("imagen de {w}×{h}: fuera de los límites"),
+                crate::i18n::trs(
+                    format!("imagen de {w}×{h}: demasiado grande o vacía"),
+                    format!("{w}×{h} image: too large or empty"),
+                ),
             ));
         }
         let mut pixels = vec![0u8; w as usize * h as usize * 4];
@@ -186,34 +221,17 @@ pub fn load_thumbnail(path: &Path, max_w: u32, max_h: u32) -> windows::core::Res
 
 /// A PNG that keeps the alpha channel, for icons.
 pub fn save_png_with_alpha(image: &Image, path: &Path) -> windows::core::Result<()> {
-    unsafe {
-        let factory = wic()?;
-        let stream = factory.CreateStream()?;
-        let p = wide(path);
-        stream.InitializeFromFilename(PCWSTR(p.as_ptr()), GENERIC_WRITE.0)?;
-        let encoder = factory.CreateEncoder(&GUID_ContainerFormatPng, std::ptr::null())?;
-        encoder.Initialize(&stream, WICBitmapEncoderNoCache)?;
-        let mut frame: Option<IWICBitmapFrameEncode> = None;
-        let mut props: Option<IPropertyBag2> = None;
-        encoder.CreateNewFrame(&mut frame, &mut props)?;
-        let frame = frame.ok_or_else(windows::core::Error::empty)?;
-        frame.Initialize(props.as_ref())?;
-        frame.SetSize(image.width, image.height)?;
-        let mut format = GUID_WICPixelFormat32bppBGRA;
-        frame.SetPixelFormat(&mut format)?;
-        frame.WritePixels(image.height, image.stride() as u32, &image.pixels)?;
-        frame.Commit()?;
-        encoder.Commit()?;
-        stream.Commit(windows::Win32::System::Com::STGC_DEFAULT)?;
-    }
-    Ok(())
+    encode(image, path, ImageFormat::Png, 100, true)
 }
 
+/// Writes `image`; without `alpha` the pixels go as 24bpp, which every
+/// Windows PNG and JPEG encoder takes and which drops the unused channel.
 fn encode(
     image: &Image,
     path: &Path,
     format: ImageFormat,
     jpeg_quality: u8,
+    alpha: bool,
 ) -> windows::core::Result<()> {
     unsafe {
         let factory = wic()?;
@@ -242,16 +260,17 @@ fn encode(
         }
         frame.Initialize(props.as_ref())?;
         frame.SetSize(image.width, image.height)?;
-        let mut pixel_format = GUID_WICPixelFormat24bppBGR;
+        let mut pixel_format = if alpha {
+            GUID_WICPixelFormat32bppBGRA
+        } else {
+            GUID_WICPixelFormat24bppBGR
+        };
         frame.SetPixelFormat(&mut pixel_format)?;
         if pixel_format == GUID_WICPixelFormat24bppBGR {
             let bgr = image.bgr();
             let stride = bgr.len() as u32 / image.height.max(1);
             frame.WritePixels(image.height, stride, &bgr)?;
         } else {
-            // Every Windows PNG and JPEG encoder takes 24bpp BGR; this is
-            // only reached by a codec we have not met.
-            debug_assert!(pixel_format == GUID_WICPixelFormat32bppBGRA);
             frame.WritePixels(image.height, image.stride() as u32, &image.pixels)?;
         }
         frame.Commit()?;
