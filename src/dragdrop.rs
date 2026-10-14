@@ -15,43 +15,62 @@ use windows::core::PCWSTR;
 
 use crate::util::wide;
 
-/// The folder a drag hands its file over from. A file there is a copy made
-/// for the drag, so a target may take it — but Paint opens the dropped
-/// file where it is, and saves over it there: files are kept a week, not
-/// cleared on the next drag, so an edit saved in Paint is not lost to it.
+/// How long a dragged file outlives its drag. Explorer may copy a dropped
+/// file after the drop has returned; a minute covers it.
+const AFTER_DROP: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn staging_dir() -> PathBuf {
+    crate::paths::local_dir().join("drag")
+}
+
+/// The folder a drag hands its file over from. Nothing the user did not
+/// save is kept: each new drag removes the files of drags over a minute
+/// old, and the folder is emptied when the agent starts and when it quits
+/// (`clear_staging`). No thread waits on a file: one each, a burst of drags
+/// held a hundred and more.
 pub fn staging() -> PathBuf {
-    const KEEP: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
-    let dir = crate::paths::local_dir().join("drag");
+    let dir = staging_dir();
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let old = e
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_some_and(|age| age > KEEP);
-            if old {
-                let _ = std::fs::remove_file(e.path());
-            }
-        }
-    }
+    remove_files(&dir, Some(AFTER_DROP));
     dir
 }
 
-/// Starts a drag of `path`, a file in `staging`, and returns once it
-/// ends; `true` when something took the file. Copy and move are both
-/// offered: a program picks one without a modifier key — Word copies,
-/// Paint moves — and with copy alone Paint refused the drop unless Ctrl
-/// was held.
-pub fn drag_file(hwnd: HWND, path: &Path) -> bool {
-    let Ok(data) = file_data(path) else {
-        return false;
+/// Empties the drag folder.
+pub fn clear_staging() {
+    remove_files(&staging_dir(), None);
+}
+
+/// Removes the files in `dir`, or only those older than `older_than`.
+fn remove_files(dir: &Path, older_than: Option<std::time::Duration>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
-    unsafe {
-        SHDoDragDrop(Some(hwnd), &data, None, DROPEFFECT_COPY | DROPEFFECT_MOVE)
-            .map(|effect: DROPEFFECT| effect != DROPEFFECT(0))
-            .unwrap_or(false)
+    for e in entries.flatten() {
+        let old = older_than.is_none_or(|limit| {
+            e.metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > limit)
+        });
+        if old {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// Starts a drag of `path`, a copy in `staging`, and returns once it ends;
+/// `true` when something took the file. Copy and move are both offered: a
+/// program picks one without a modifier key — Word copies, Paint moves —
+/// and with copy alone Paint refused the drop unless Ctrl was held.
+pub fn drag_file(hwnd: HWND, path: &Path) -> bool {
+    match file_data(path) {
+        Ok(data) => unsafe {
+            SHDoDragDrop(Some(hwnd), &data, None, DROPEFFECT_COPY | DROPEFFECT_MOVE)
+                .map(|effect: DROPEFFECT| effect != DROPEFFECT(0))
+                .unwrap_or(false)
+        },
+        Err(_) => false,
     }
 }
 
@@ -88,5 +107,28 @@ mod tests {
         let offered = unsafe { data.QueryGetData(&hdrop) };
         let _ = std::fs::remove_file(&path);
         assert!(offered.is_ok(), "no file list in the drag: {offered:?}");
+    }
+
+    /// Everything a drag does but the drag itself, many times over, for a
+    /// memory measurement taken from outside (`--ignored`): the process
+    /// must level off, not grow with the count.
+    #[test]
+    #[ignore]
+    fn many_drags_level_off() {
+        crate::image::tests::com_for_test();
+        let image = crate::image::Image {
+            width: 640,
+            height: 400,
+            pixels: [40u8, 90, 160, 255].repeat(640 * 400),
+        };
+        let dir = std::env::temp_dir().join(format!("scm-drag-mem-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        for n in 0..4000 {
+            let path = dir.join(format!("{}.png", n % 50));
+            crate::image::save(&image, &path, crate::settings::ImageFormat::Png, 100).unwrap();
+            let data = file_data(&path).unwrap();
+            drop(data);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

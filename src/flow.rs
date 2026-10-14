@@ -139,10 +139,11 @@ pub fn finish_writing() {
 }
 
 /// Hands a finished capture to the user: the clipboard (set here, on the UI
-/// thread that owns it), the history and the save folder (encoded on a
-/// worker, so the next capture never waits for this one's PNG), then the
-/// quick-access card — or the editor straight away, if that is the setting.
-/// `near` is a point of the screen it was taken on.
+/// thread that owns it), the history when it is kept and the save folder
+/// when that is the setting (encoded on a worker, so the next capture never
+/// waits for this one's PNG), then the quick-access card — or the editor
+/// straight away. Nothing else is written. `near` is a point of the screen
+/// it was taken on.
 pub fn deliver(image: Image, near: (i32, i32)) {
     let s = agent::settings();
     if s.copy_after_capture
@@ -158,24 +159,26 @@ pub fn deliver(image: Image, near: (i32, i32)) {
     let (w, h) = (image.width, image.height);
     let save_to = s.save_after_capture.then(|| s.clone());
     let history_days = s.history_days;
-    let hist = history::new_path();
+    let hist = s.keep_history.then(history::new_path);
     let for_worker = image.clone();
     let hist_worker = hist.clone();
     let worker = std::thread::spawn(move || {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
-        if let Some(dir) = hist_worker.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        // The card or the editor may have written it meanwhile, or the user
-        // deleted it: either way it is not written over or back.
-        match image::save_new(&for_worker, &hist_worker) {
-            Ok(_) if history::was_forgotten(&hist_worker) => {
-                let _ = std::fs::remove_file(&hist_worker);
+        if let Some(hist_worker) = hist_worker {
+            if let Some(dir) = hist_worker.parent() {
+                let _ = std::fs::create_dir_all(dir);
             }
-            Ok(_) => {}
-            Err(e) => log::error(&format!("history {}: {e}", hist_worker.display())),
+            // The card or the editor may have written it meanwhile, or the
+            // user deleted it: either way it is not written over or back.
+            match image::save_new(&for_worker, &hist_worker) {
+                Ok(_) if history::was_forgotten(&hist_worker) => {
+                    let _ = std::fs::remove_file(&hist_worker);
+                }
+                Ok(_) => {}
+                Err(e) => log::error(&format!("history {}: {e}", hist_worker.display())),
+            }
         }
         if let Some(settings) = save_to
             && let Err(e) = save_to_folder(&for_worker, &settings)
@@ -191,7 +194,7 @@ pub fn deliver(image: Image, near: (i32, i32)) {
     }
     log::info(&format!("captured {w}x{h}"));
     if s.open_editor_after_capture {
-        crate::editor::open_capture(image, Some(hist));
+        crate::editor::open_capture(image, hist);
     } else if s.show_overlay {
         crate::quick::show(image, hist, near);
     }

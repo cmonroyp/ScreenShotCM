@@ -80,13 +80,25 @@ const CLOSE_CHOICES: [(u32, &str, &str); 6] = [
     (30, "A los 30 segundos", "After 30 seconds"),
     (60, "Al minuto", "After a minute"),
 ];
-const HISTORY_CHOICES: [(u32, &str, &str); 5] = [
-    (7, "1 semana", "1 week"),
-    (14, "2 semanas", "2 weeks"),
-    (30, "1 mes", "1 month"),
-    (90, "3 meses", "3 months"),
-    (0, "Siempre", "Forever"),
+/// `None` keeps no history at all — the default; a number is the days a
+/// capture is kept, 0 for ever.
+const HISTORY_CHOICES: [(Option<u32>, &str, &str); 6] = [
+    (None, "No guardar", "Don't keep"),
+    (Some(7), "1 semana", "1 week"),
+    (Some(14), "2 semanas", "2 weeks"),
+    (Some(30), "1 mes", "1 month"),
+    (Some(90), "3 meses", "3 months"),
+    (Some(0), "Siempre", "Forever"),
 ];
+
+/// The history row's entry for these settings.
+fn history_choice(s: &Settings) -> usize {
+    let wanted = s.keep_history.then_some(s.history_days);
+    HISTORY_CHOICES
+        .iter()
+        .position(|c| c.0 == wanted)
+        .unwrap_or(0)
+}
 const LANGUAGE_CHOICES: [(crate::settings::Language, &str, &str); 3] = [
     (
         crate::settings::Language::Auto,
@@ -450,10 +462,7 @@ fn create() -> Result<(), String> {
         );
         y += row + px(4.0);
         label(crate::i18n::tr("Historial:", "History:"), left, y, px(80.0));
-        let days_idx = HISTORY_CHOICES
-            .iter()
-            .position(|c| c.0 == settings.history_days)
-            .unwrap_or(2);
+        let days_idx = history_choice(&settings);
         combo(
             left + px(90.0),
             y,
@@ -720,8 +729,10 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
             .into());
         }
     };
-    s.history_days =
+    let history =
         HISTORY_CHOICES[selection(hwnd, ID_HISTORY_DAYS).min(HISTORY_CHOICES.len() - 1)].0;
+    s.keep_history = history.is_some();
+    s.history_days = history.unwrap_or(s.history_days);
     s.show_magnifier = checked(hwnd, ID_MAGNIFIER);
     s.show_crosshair = checked(hwnd, ID_CROSSHAIR);
     s.self_timer_seconds = TIMER_CHOICES[selection(hwnd, ID_TIMER).min(TIMER_CHOICES.len() - 1)];
@@ -863,13 +874,7 @@ fn reset(hwnd: HWND) {
             .position(|c| c.0 == d.overlay_close_seconds)
             .unwrap_or(0),
     );
-    sel(
-        ID_HISTORY_DAYS,
-        HISTORY_CHOICES
-            .iter()
-            .position(|c| c.0 == d.history_days)
-            .unwrap_or(2),
-    );
+    sel(ID_HISTORY_DAYS, history_choice(&d));
     sel(ID_LANGUAGE, 0);
     sel(
         ID_TIMER,

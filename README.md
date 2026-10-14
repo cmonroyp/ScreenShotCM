@@ -41,8 +41,9 @@ SHA-256 para comprobar que el archivo es el original.
   redondeadas y sombra. El último fondo elegido se aplica a la siguiente
   captura; *Sin fondo* lo quita.
 - **Compartir**: cada captura va al portapapeles y aparece en una miniatura
-  para copiarla, guardarla o arrastrarla a otra aplicación. Historial del
-  último mes.
+  para copiarla, guardarla o arrastrarla a otra aplicación. Nada se guarda
+  en el disco si no lo pides: el historial de capturas es opcional
+  (*Ajustes → Historial*).
 - **Fijar** una captura sobre todas las ventanas como referencia.
 - **Ligera**: menos de 2 MB de memoria en reposo y un único ejecutable.
 - En **español e inglés**, según el idioma de Windows o el que elijas.

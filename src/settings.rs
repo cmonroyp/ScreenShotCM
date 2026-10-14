@@ -22,6 +22,9 @@ pub struct Settings {
     pub jpeg_quality: u8,
     pub show_magnifier: bool,
     pub show_crosshair: bool,
+    /// Whether captures are kept in the history at all. Off unless the
+    /// user turns it on: nothing is stored that they did not ask for.
+    pub keep_history: bool,
     pub history_days: u32,
     pub self_timer_seconds: u32,
     pub hotkey_area: String,
@@ -82,6 +85,7 @@ impl Default for Settings {
             jpeg_quality: 90,
             show_magnifier: true,
             show_crosshair: true,
+            keep_history: false,
             history_days: 30,
             self_timer_seconds: 5,
             hotkey_area: "PrintScreen".into(),
@@ -154,6 +158,7 @@ impl Settings {
                 ),
                 "show_magnifier" => set(&mut s.show_magnifier, parse_bool(v)),
                 "show_crosshair" => set(&mut s.show_crosshair, parse_bool(v)),
+                "keep_history" => set(&mut s.keep_history, parse_bool(v)),
                 "history_days" => set(&mut s.history_days, v.parse().ok().filter(|d| *d <= 3650)),
                 "self_timer_seconds" => set(
                     &mut s.self_timer_seconds,
@@ -212,6 +217,7 @@ impl Settings {
              jpeg_quality = {}\n\
              show_magnifier = {}\n\
              show_crosshair = {}\n\
+             keep_history = {}\n\
              history_days = {}\n\
              self_timer_seconds = {}\n\
              hotkey_area = {}\n\
@@ -235,6 +241,7 @@ impl Settings {
             self.jpeg_quality,
             b(self.show_magnifier),
             b(self.show_crosshair),
+            b(self.keep_history),
             self.history_days,
             self.self_timer_seconds,
             self.hotkey_area,
@@ -303,6 +310,7 @@ mod tests {
             hotkey_scrolling: "Ctrl+Alt+S".into(),
             save_dir: PathBuf::from(r"D:\Capturas con espacio"),
             language: Language::English,
+            keep_history: true,
             ..Settings::default()
         };
         assert_eq!(Settings::parse(&s.serialise()), s);
@@ -345,6 +353,14 @@ mod tests {
             odd.background.map(|b| b.padding),
             Some(Background::default().padding)
         );
+    }
+
+    #[test]
+    fn the_history_is_off_unless_asked_for() {
+        assert!(!Settings::default().keep_history);
+        // A settings file from before the switch existed says nothing of it.
+        assert!(!Settings::parse("history_days = 30\ncopy_after_capture = true").keep_history);
+        assert!(Settings::parse("keep_history = true").keep_history);
     }
 
     #[test]

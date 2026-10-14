@@ -113,6 +113,8 @@ fn main() {
     ));
     let code = agent::run(request);
     flow::finish_writing();
+    // A drag's copy is not the user's to keep.
+    dragdrop::clear_staging();
     log::info("exit");
     std::process::exit(code);
 }

@@ -2922,9 +2922,10 @@ impl Editor {
         }
     }
 
-    /// «Listo»: the annotated capture replaces the original in the history
-    /// (and in its quick-access card), and goes to the clipboard when the
-    /// user copies captures.
+    /// «Listo»: the annotated capture goes to the clipboard when the user
+    /// copies captures and to its quick-access card, and replaces the
+    /// original in the history — or joins it, when the history is kept.
+    /// With the history off nothing is written.
     fn finish(&mut self) -> Result<(), String> {
         if !self.dirty && self.source.is_some() {
             return Ok(());
@@ -2935,17 +2936,20 @@ impl Editor {
             let _ = clipboard::copy_image(agent::hwnd(), &img);
         }
         let path = match &self.source {
-            Some(p) => p.clone(),
-            None => {
+            Some(p) => Some(p.clone()),
+            None if settings.keep_history => {
                 let p = crate::history::new_path();
                 if let Some(dir) = p.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                p
+                Some(p)
             }
+            None => None,
         };
-        crate::image::save(&img, &path, ImageFormat::Png, 100).map_err(|e| e.to_string())?;
-        crate::quick::replaced(&path, img);
+        if let Some(path) = &path {
+            crate::image::save(&img, path, ImageFormat::Png, 100).map_err(|e| e.to_string())?;
+        }
+        crate::quick::replaced(path.as_deref(), img);
         self.dirty = false;
         Ok(())
     }
@@ -3857,6 +3861,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             WM_LBUTTONUP => {
                 let (x, y) = lparam_point(lparam.0);
                 let _ = ReleaseCapture();
+                // A press on «Arrastrar» released without a drag: its file goes.
+                if let Some(Some(unused)) = with(hwnd, |ed| ed.drag_ready.take()) {
+                    let _ = std::fs::remove_file(unused);
+                }
                 if let Some(Some(action)) = with(hwnd, |ed| ed.on_up((x as f32, y as f32))) {
                     act(hwnd, action);
                 }

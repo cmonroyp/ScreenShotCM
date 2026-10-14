@@ -60,6 +60,8 @@ pub fn run(first: Request) -> i32 {
         // OLE, not just COM: dragging a capture out to another program
         // needs it on the UI thread.
         let _ = OleInitialize(None);
+        // A drag's file left by a crash: nothing unsaved is kept.
+        crate::dragdrop::clear_staging();
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>() as u32,

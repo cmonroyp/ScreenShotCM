@@ -55,7 +55,9 @@ struct Card {
     hwnd: HWND,
     image: Rc<Image>,
     thumb: Image,
-    path: PathBuf,
+    /// Its file in the history; `None` when the history is not kept, and
+    /// the card works from `image` alone.
+    path: Option<PathBuf>,
     /// The monitor's work area the card lives on.
     work: RECT,
     s: f32,
@@ -72,21 +74,24 @@ struct Card {
 
 thread_local! {
     static CARDS: RefCell<Vec<Card>> = const { RefCell::new(Vec::new()) };
-    static LAST_CLOSED: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// The card closed last, for "restaurar": its picture is kept in
+    /// memory, so restoring needs no file.
+    static LAST_CLOSED: RefCell<Option<(Rc<Image>, Option<PathBuf>)>> = const { RefCell::new(None) };
 }
 
 fn margin(s: f32) -> f32 {
     20.0 * s
 }
 
-/// Shows a card for a capture saved (or being saved) at `path`.
-pub fn show(image: Image, path: PathBuf, near: (i32, i32)) {
+/// Shows a card for a capture, saved (or being saved) in the history at
+/// `path` when the history is kept.
+pub fn show(image: Image, path: Option<PathBuf>, near: (i32, i32)) {
     if let Err(e) = create(Rc::new(image), path, near) {
         log::error(&format!("quick overlay: {e}"));
     }
 }
 
-fn create(image: Rc<Image>, path: PathBuf, near: (i32, i32)) -> Result<(), String> {
+fn create(image: Rc<Image>, path: Option<PathBuf>, near: (i32, i32)) -> Result<(), String> {
     unsafe {
         let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let class = WNDCLASSEXW {
@@ -151,10 +156,12 @@ fn create(image: Rc<Image>, path: PathBuf, near: (i32, i32)) -> Result<(), Strin
 }
 
 /// The editor finished a capture: refresh its card, or show one.
-pub fn replaced(path: &Path, image: Image) {
+pub fn replaced(path: Option<&Path>, image: Image) {
     let found = CARDS.with(|c| {
         let mut cards = c.borrow_mut();
-        let card = cards.iter_mut().find(|k| k.path == path)?;
+        let card = cards
+            .iter_mut()
+            .find(|k| path.is_some() && k.path.as_deref() == path)?;
         card.thumb = layered::thumbnail(&image, (236.0 * card.s) as u32, (160.0 * card.s) as u32);
         card.w = (card.thumb.width as f32).max(150.0 * card.s);
         card.h = (card.thumb.height as f32).max(96.0 * card.s);
@@ -169,13 +176,13 @@ pub fn replaced(path: &Path, image: Image) {
         unsafe {
             let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p);
         }
-        show(image, path.to_path_buf(), (p.x, p.y));
+        show(image, path.map(Path::to_path_buf), (p.x, p.y));
     }
 }
 
 /// Brings back the last card closed.
 pub fn restore_last() {
-    let Some(path) = LAST_CLOSED.with(|l| l.borrow_mut().take()) else {
+    let Some((image, path)) = LAST_CLOSED.with(|l| l.borrow_mut().take()) else {
         agent::notify(
             crate::i18n::tr("Nada que restaurar", "Nothing to restore"),
             crate::i18n::tr(
@@ -186,7 +193,9 @@ pub fn restore_last() {
         );
         return;
     };
-    match image::load(&path) {
+    // A kept file is read again: the editor may have finished it since.
+    let reread = path.as_deref().map(image::load);
+    match reread.unwrap_or_else(|| Ok((*image).clone())) {
         Ok(img) => {
             let mut p = POINT::default();
             unsafe {
@@ -447,7 +456,7 @@ fn close(hwnd: HWND) {
         Some(cards.remove(i))
     });
     if let Some(card) = removed {
-        LAST_CLOSED.with(|l| *l.borrow_mut() = Some(card.path.clone()));
+        LAST_CLOSED.with(|l| *l.borrow_mut() = Some((card.image.clone(), card.path.clone())));
         unsafe {
             let _ = KillTimer(Some(hwnd), CLOSE_TIMER);
             let _ = DestroyWindow(hwnd);
@@ -456,7 +465,7 @@ fn close(hwnd: HWND) {
     }
 }
 
-/// The file behind a card, written now if the history writer has not yet.
+/// The card's history file, written now if the history writer has not yet.
 fn ensure_file(image: &Image, path: &Path) -> bool {
     if path.exists() {
         return true;
@@ -498,17 +507,21 @@ fn press(hwnd: HWND, btn: Btn) {
         },
         Btn::Close => close(hwnd),
         Btn::Pin => {
-            crate::pin::open((*image).clone(), Some(path));
+            crate::pin::open((*image).clone(), path);
             close(hwnd);
         }
         Btn::Edit => {
-            ensure_file(&image, &path);
+            if let Some(path) = &path {
+                ensure_file(&image, path);
+            }
             close(hwnd);
-            crate::editor::open_capture((*image).clone(), Some(path));
+            crate::editor::open_capture((*image).clone(), path);
         }
         Btn::Delete => {
             // The history worker may still be writing it.
-            if let Err(e) = crate::history::forget(&path) {
+            if let Some(path) = &path
+                && let Err(e) = crate::history::forget(path)
+            {
                 log::error(&format!("delete {}: {e}", path.display()));
             }
             close(hwnd);
@@ -544,7 +557,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         let (dx, dy) = (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG));
                         if (x - px).abs() > dx || (y - py).abs() > dy {
                             card.press = None;
-                            start_drag = Some((card.image.clone(), card.path.clone()));
+                            start_drag = Some(card.image.clone());
                         }
                     }
                     let hot = button_at(card, (x as f32, y as f32));
@@ -556,16 +569,17 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     card.hot = hot;
                     Some(changed)
                 });
-                if let Some((image, path)) = start_drag {
+                if let Some(image) = start_drag {
                     let _ = ReleaseCapture();
-                    // A copy is dragged, never the history's own file: a
-                    // target may move what it is given.
-                    let staged = path
+                    // A copy is dragged, written from the picture itself and
+                    // never the history's own file: a target may move what it
+                    // is given, and the history may not be kept at all.
+                    let name = flow::save_path(&agent::settings())
                         .file_name()
-                        .map(|name| dragdrop::staging().join(name))
-                        .filter(|copy| {
-                            ensure_file(&image, &path) && std::fs::copy(&path, copy).is_ok()
-                        });
+                        .map(|n| n.to_owned())
+                        .unwrap_or_default();
+                    let staged = Some(dragdrop::staging().join(name).with_extension("png"))
+                        .filter(|copy| image::save(&image, copy, ImageFormat::Png, 100).is_ok());
                     if staged.is_some_and(|copy| dragdrop::drag_file(hwnd, &copy)) {
                         close(hwnd);
                         return LRESULT(0);
