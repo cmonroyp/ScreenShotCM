@@ -78,11 +78,12 @@ fn key_code(key: &str) -> Option<u32> {
 }
 
 /// The commands a hotkey can trigger, in the order of their ids.
-const BOUND: [Command; 4] = [
+const BOUND: [Command; 5] = [
     Command::CaptureArea,
     Command::CaptureFullscreen,
     Command::CaptureWindow,
     Command::CapturePreviousArea,
+    Command::CaptureScrolling,
 ];
 
 fn text_for(settings: &Settings, command: Command) -> &str {
@@ -91,6 +92,7 @@ fn text_for(settings: &Settings, command: Command) -> &str {
         Command::CaptureFullscreen => &settings.hotkey_fullscreen,
         Command::CaptureWindow => &settings.hotkey_window,
         Command::CapturePreviousArea => &settings.hotkey_previous_area,
+        Command::CaptureScrolling => &settings.hotkey_scrolling,
         _ => "",
     }
 }

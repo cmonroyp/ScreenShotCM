@@ -34,7 +34,7 @@ thread_local! {
 }
 
 pub fn run(command: Command) {
-    if overlay::is_open() || countdown_running() {
+    if overlay::is_open() || countdown_running() || crate::scroll::is_active() {
         log::info("ignored: a capture is already in progress");
         return;
     }
@@ -60,6 +60,20 @@ pub fn run(command: Command) {
                 finish_from_frame(rect, frame, true)
             }),
         },
+        Command::CaptureScrolling => select(Mode::Area, &s, |rect, _frame| {
+            // The page is read live from here on: the frozen frame only
+            // served to choose the area.
+            if let Some(r) = rect
+                && let Err(e) = crate::scroll::start(r)
+            {
+                log::error(&format!("scrolling capture: {e}"));
+                agent::notify(
+                    crate::i18n::tr("No se pudo capturar", "Could not capture"),
+                    &e,
+                    true,
+                );
+            }
+        }),
         Command::SelfTimer => {
             let seconds = s.self_timer_seconds;
             select(Mode::Area, &s, move |rect, _frame| {

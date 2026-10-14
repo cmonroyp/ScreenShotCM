@@ -29,6 +29,10 @@ SHA-256 para comprobar que el archivo es el original.
 - **Capturar** un área, una ventana, la pantalla completa o la misma área
   otra vez, también con temporizador. La pantalla se congela mientras
   seleccionas, con lupa, cruz y medidas.
+- **Captura con desplazamiento**: páginas, chats y documentos más largos que
+  la pantalla, en una sola imagen. Elige el área y desplázate con la rueda, o
+  pulsa *Desplazar solo* y la app baja hasta el final por ti; una vista previa
+  muestra cómo crece. Los encabezados fijos aparecen una sola vez.
 - **Anotar** en el editor, que se abre al capturar: flechas rectas o curvas,
   rectángulos, elipses, líneas, texto, contadores numerados, foco, lápiz,
   resaltador, y pixelado o desenfoque para ocultar datos. Recorte, deshacer y
@@ -52,9 +56,11 @@ Por defecto (se cambian en *Ajustes → Atajos de teclado*):
 | Capturar ventana | Shift+Impr Pant (o Espacio durante la selección) |
 | Pantalla completa | Ctrl+Impr Pant |
 | Área anterior | Alt+Shift+Impr Pant |
+| Captura con desplazamiento | Ctrl+Shift+Impr Pant |
 
 Durante la selección: Shift la hace cuadrada, las flechas mueven el puntero
-píxel a píxel, Esc o clic derecho cancelan. En el editor: V R F O L A T B S N P
+píxel a píxel, Esc o clic derecho cancelan. Durante una captura con
+desplazamiento: Intro la termina y Esc la cancela. En el editor: V R F O L A T B S N P
 H C eligen la herramienta (pulsar otra vez la suelta), Ctrl+Z / Ctrl+Y
 deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda, Ctrl+rueda hace zoom.
 
@@ -70,7 +76,7 @@ screenshotcm://capture-window
 ```
 
 Órdenes: `capture-area`, `capture-previous-area`, `capture-fullscreen`,
-`capture-window`, `self-timer`, `open-from-clipboard`, `open-file`,
+`capture-window`, `capture-scrolling`, `self-timer`, `open-from-clipboard`, `open-file`,
 `open-annotate`, `pin`, `open-history`, `restore-recently-closed`,
 `unlock-pins`, `close-pins`, `open-save-folder`, `open-settings`,
 `reload-settings`, `quit`. Un enlace `screenshotcm://` solo acepta archivos en
@@ -108,11 +114,13 @@ Free, no account, no ads, no internet connection.
   — installs for your user, no administrator needed, and starts with Windows.
   The installer is not signed yet, so SmartScreen may warn you (*More info →
   Run anyway*); each release publishes its SHA-256.
-- Capture an area, a window or the full screen; annotate with curved arrows,
-  text, counters, pixelate and more; present it on a gradient; copy, save,
-  drag or pin it. Under 2 MB of memory at rest. English and Spanish.
+- Capture an area, a window or the full screen, or a whole page, chat or
+  document by scrolling (by hand or automatically); annotate with curved
+  arrows, text, counters, pixelate and more; present it on a gradient; copy,
+  save, drag or pin it. Under 2 MB of memory at rest. English and Spanish.
 - Default shortcuts: Print Screen (area), Shift+Print Screen (window),
-  Ctrl+Print Screen (full screen), Alt+Shift+Print Screen (previous area).
+  Ctrl+Print Screen (full screen), Alt+Shift+Print Screen (previous area),
+  Ctrl+Shift+Print Screen (scrolling capture).
 - Privacy: nothing leaves your PC — [privacy policy](https://cmonroyp.github.io/screenshotcm-web/privacy.html).
   Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
 - Licence: [GPL-3.0-or-later](LICENSE); the name and icon are reserved

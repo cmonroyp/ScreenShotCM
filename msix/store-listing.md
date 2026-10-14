@@ -40,6 +40,7 @@ son los de Partner Center.
 > • Un área, una ventana, la pantalla completa o la misma área otra vez.
 > • La pantalla se congela mientras seleccionas, con lupa, cruz y medidas.
 > • Temporizador para capturar menús y estados que desaparecen.
+> • Captura con desplazamiento: páginas y chats largos en una sola imagen.
 >
 > ANOTAR
 > • El editor se abre al capturar: flechas rectas o curvas, rectángulos,
@@ -63,6 +64,7 @@ son los de Partner Center.
 **Funciones destacadas** (hasta 20, de 200 caracteres):
 
 1. Captura de área, ventana, pantalla completa y área anterior
+1. Captura con desplazamiento de páginas, chats y documentos largos
 2. Pantalla congelada con lupa, cruz y medidas
 3. Editor con flechas curvas, texto, contadores y pixelado
 4. Fondos con degradado, margen, redondeo y sombra
@@ -76,8 +78,8 @@ portapapeles, editor de imágenes, productividad
 
 **Novedades de esta versión**:
 
-> Ahora en español e inglés. Flechas curvas, edición de texto con cursor y
-> selección, y atajos configurables.
+> Captura con desplazamiento: páginas, chats y documentos largos en una sola
+> imagen, desplazándote tú o de forma automática.
 
 ---
 
@@ -101,6 +103,7 @@ portapapeles, editor de imágenes, productividad
 > • An area, a window, the full screen, or the same area again.
 > • The screen freezes while you select, with a magnifier, crosshair and size.
 > • Self-timer for menus and states that vanish.
+> • Scrolling capture: long pages and chats in a single image.
 >
 > ANNOTATE
 > • The editor opens as you capture: straight or curved arrows, rectangles,
@@ -124,6 +127,7 @@ portapapeles, editor de imágenes, productividad
 **Product features**:
 
 1. Capture an area, a window, the full screen or the previous area
+1. Scrolling capture of long pages, chats and documents
 2. Frozen screen with magnifier, crosshair and size
 3. Editor with curved arrows, text, counters and pixelate
 4. Backgrounds with gradient, padding, rounding and shadow
@@ -137,5 +141,5 @@ image editor, productivity
 
 **What's new in this version**:
 
-> Now in English and Spanish. Curved arrows, text editing with a caret and
-> selection, and configurable shortcuts.
+> Scrolling capture: long pages, chats and documents in a single image,
+> scrolled by hand or automatically.

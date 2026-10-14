@@ -100,6 +100,11 @@ pub fn menu(hwnd: HWND, at: POINT, settings: &Settings) -> Option<Command> {
             &settings.hotkey_fullscreen,
         ),
         (
+            Some(Command::CaptureScrolling),
+            crate::i18n::tr("Captura con desplazamiento", "Scrolling capture"),
+            &settings.hotkey_scrolling,
+        ),
+        (
             Some(Command::SelfTimer),
             crate::i18n::tr("Temporizador", "Timer"),
             "",

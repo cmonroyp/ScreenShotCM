@@ -253,6 +253,7 @@ pub fn dispatch(command: Command) {
         | Command::CaptureWindow
         | Command::CaptureFullscreen
         | Command::CapturePreviousArea
+        | Command::CaptureScrolling
         | Command::SelfTimer => crate::flow::run(command),
     }
 }

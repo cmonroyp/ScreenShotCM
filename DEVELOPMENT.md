@@ -67,6 +67,23 @@ Windows* usa la tarea de inicio declarada en `msix/AppxManifest.xml`, que
 también declara el enlace `screenshotcm://`. El texto de la ficha está en
 [msix/store-listing.md](msix/store-listing.md).
 
+## Captura con desplazamiento
+
+`scroll.rs` lleva la sesión: un marco alrededor del área, la barra (Desplazar
+solo, Listo, Cancelar) y la vista previa, las tres excluidas de la captura y,
+el marco y la vista previa, transparentes al ratón. El área se lee cada 60 ms
+y *Desplazar solo* envía una muesca de rueda cada tres lecturas mientras el
+puntero está sobre el área; termina sola tras 20 lecturas sin nada nuevo.
+
+`stitch.rs` une las lecturas. Cada fila se resume en el brillo medio de 32
+franjas, sin el borde derecho donde se mueve la barra de desplazamiento, y se
+busca el desplazamiento cuyas filas difieren menos; las bandas que no se
+mueven arriba y abajo (encabezados fijos) se guardan una sola vez. No se
+comparan píxeles exactos: un navegador al 125 % desplaza en fracciones de
+píxel y redibuja el suavizado del texto en cada posición (Edge perdía 20 de 30
+lecturas así). La altura se limita a lo que el editor puede dibujar y a lo que
+un archivo guardado puede volver a abrirse (20 000 px y 100 megapíxeles).
+
 ## Idiomas
 
 Cada texto de la interfaz está escrito en el código como

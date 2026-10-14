@@ -67,6 +67,7 @@ const ID_HK_AREA: i32 = 120;
 const ID_HK_WINDOW: i32 = 121;
 const ID_HK_FULL: i32 = 122;
 const ID_HK_PREVIOUS: i32 = 123;
+const ID_HK_SCROLLING: i32 = 124;
 const ID_RESET: i32 = 130;
 const ID_CANCEL: i32 = 131;
 const ID_OK: i32 = 132;
@@ -571,6 +572,11 @@ fn create() -> Result<(), String> {
                 crate::i18n::tr("Área anterior", "Previous area"),
                 &settings.hotkey_previous_area,
             ),
+            (
+                ID_HK_SCROLLING,
+                crate::i18n::tr("Con desplazamiento", "Scrolling"),
+                &settings.hotkey_scrolling,
+            ),
         ] {
             label(text, left, y, px(170.0));
             let t = wide(value);
@@ -747,12 +753,14 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     s.hotkey_window = text(hwnd, ID_HK_WINDOW);
     s.hotkey_fullscreen = text(hwnd, ID_HK_FULL);
     s.hotkey_previous_area = text(hwnd, ID_HK_PREVIOUS);
+    s.hotkey_scrolling = text(hwnd, ID_HK_SCROLLING);
     s.language = LANGUAGE_CHOICES[selection(hwnd, ID_LANGUAGE).min(LANGUAGE_CHOICES.len() - 1)].0;
     let keys = [
         &s.hotkey_area,
         &s.hotkey_window,
         &s.hotkey_fullscreen,
         &s.hotkey_previous_area,
+        &s.hotkey_scrolling,
     ];
     for (i, a) in keys.iter().enumerate() {
         if !a.is_empty() && keys[i + 1..].iter().any(|b| b.eq_ignore_ascii_case(a)) {
@@ -862,6 +870,7 @@ fn reset(hwnd: HWND) {
     set_text(ID_HK_WINDOW, &d.hotkey_window);
     set_text(ID_HK_FULL, &d.hotkey_fullscreen);
     set_text(ID_HK_PREVIOUS, &d.hotkey_previous_area);
+    set_text(ID_HK_SCROLLING, &d.hotkey_scrolling);
     let sel = |id, i: usize| unsafe {
         SendMessageW(item(hwnd, id), CB_SETCURSEL, Some(WPARAM(i)), None);
     };

@@ -27,6 +27,7 @@ pub struct Settings {
     pub hotkey_fullscreen: String,
     pub hotkey_window: String,
     pub hotkey_previous_area: String,
+    pub hotkey_scrolling: String,
     pub language: Language,
 }
 
@@ -83,6 +84,7 @@ impl Default for Settings {
             hotkey_fullscreen: "Ctrl+PrintScreen".into(),
             hotkey_window: "Shift+PrintScreen".into(),
             hotkey_previous_area: "Alt+Shift+PrintScreen".into(),
+            hotkey_scrolling: "Ctrl+Shift+PrintScreen".into(),
             language: Language::Auto,
         }
     }
@@ -152,6 +154,7 @@ impl Settings {
                 "hotkey_fullscreen" => s.hotkey_fullscreen = v.into(),
                 "hotkey_window" => s.hotkey_window = v.into(),
                 "hotkey_previous_area" => s.hotkey_previous_area = v.into(),
+                "hotkey_scrolling" => s.hotkey_scrolling = v.into(),
                 "language" => set(
                     &mut s.language,
                     match v.to_ascii_lowercase().as_str() {
@@ -189,6 +192,7 @@ impl Settings {
              hotkey_fullscreen = {}\n\
              hotkey_window = {}\n\
              hotkey_previous_area = {}\n\
+             hotkey_scrolling = {}\n\
              language = {}\n",
             self.save_dir.display(),
             b(self.copy_after_capture),
@@ -206,6 +210,7 @@ impl Settings {
             self.hotkey_fullscreen,
             self.hotkey_window,
             self.hotkey_previous_area,
+            self.hotkey_scrolling,
             self.language.code(),
         )
     }
@@ -240,6 +245,7 @@ mod tests {
         s.image_format = ImageFormat::Jpeg;
         s.jpeg_quality = 70;
         s.hotkey_area = "Ctrl+Alt+A".into();
+        s.hotkey_scrolling = "Ctrl+Alt+S".into();
         s.save_dir = PathBuf::from(r"D:\Capturas con espacio");
         s.language = Language::English;
         assert_eq!(Settings::parse(&s.serialise()), s);
