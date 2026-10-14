@@ -1,5 +1,8 @@
 # Host and target are both gnullvm, so build scripts and proc macros link
-# with the same llvm-mingw as the program (see .cargo/config.toml).
+# with the same llvm-mingw as the program (see .cargo/config.toml). rustup no
+# longer accepts a host tuple here: "stable" resolves to the gnullvm host once
+# `rustup set default-host x86_64-pc-windows-gnullvm` has been run (README),
+# and CI names the toolchain in RUSTUP_TOOLCHAIN.
 [toolchain]
-channel = "stable-x86_64-pc-windows-gnullvm"
+channel = "stable"
 components = ["clippy", "rustfmt"]

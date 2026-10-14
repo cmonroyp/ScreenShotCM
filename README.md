@@ -82,8 +82,9 @@ en menos de un minuto.
 Rust con el objetivo `x86_64-pc-windows-gnullvm` y el enlazador de
 [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) — sin Visual Studio.
 
-1. Instalar [rustup](https://rustup.rs). `rust-toolchain.toml` elige la
-   toolchain `stable-x86_64-pc-windows-gnullvm`.
+1. Instalar [rustup](https://rustup.rs) y fijar el host gnullvm, para que
+   `rust-toolchain.toml` (canal `stable`) use `stable-x86_64-pc-windows-gnullvm`:
+   `rustup set default-host x86_64-pc-windows-gnullvm`.
 2. Descomprimir una versión de llvm-mingw (`*-ucrt-x86_64.zip`) en
    `%LOCALAPPDATA%\Programs\llvm-mingw`, o apuntar `LLVM_MINGW` a donde esté.
 3. Compilar y probar a través del script, que pone llvm-mingw en el PATH:
