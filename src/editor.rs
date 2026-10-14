@@ -411,6 +411,9 @@ struct Editor {
     /// the move instead, a large picture took long enough that the button
     /// was up before the drag began, and Windows ended it at once.
     drag_ready: Option<PathBuf>,
+    /// A text pressed with the text tool: a drag moves it, and a release
+    /// where it was pressed opens it for editing there.
+    edit_on_release: Option<(usize, (f32, f32))>,
     /// False until the window is placed and shown: a DPI change before
     /// that is Windows rescaling a window that is about to be placed.
     shown: bool,
@@ -540,6 +543,7 @@ fn create(
             pressed: None,
             press_at: (0.0, 0.0),
             drag_ready: None,
+            edit_on_release: None,
             shown: false,
         };
         ed.layout();
@@ -892,6 +896,21 @@ impl Editor {
         };
         let tol = 6.0 * self.s / self.z();
         s.hit(self.to_image(p), tol, self.text_measure(s))
+    }
+
+    /// Whether `p` is on the band around text `i` that carries its dashed
+    /// frame: there the text being typed is grabbed and moved, while a
+    /// press inside it places the caret. Without it, a text could not be
+    /// moved while it was being edited — and it is, right after typing.
+    fn text_grip(&self, i: usize, p: (f32, f32)) -> bool {
+        let Some(s) = self.shapes.get(i) else {
+            return false;
+        };
+        let b = s.bounds(self.text_measure(s));
+        let a = self.to_view((b.left, b.top));
+        let c = self.to_view((b.right, b.bottom));
+        let within = |m: f32| p.0 >= a.0 - m && p.0 <= c.0 + m && p.1 >= a.1 - m && p.1 <= c.1 + m;
+        within(10.0 * self.s) && !within(1.0 * self.s)
     }
 
     /// The text offset nearest the window point `p`.
@@ -3165,6 +3184,16 @@ impl Editor {
         }
         let ip = self.to_image(p);
 
+        self.edit_on_release = None;
+        // The frame of the text being edited grabs it.
+        if let Some(i) = self.editing
+            && self.text_grip(i, p)
+        {
+            self.checkpoint();
+            self.drag = Drag::Move { index: i, last: ip };
+            return;
+        }
+
         // Inside the text being edited, a click places the caret (Shift
         // extends the selection, a double click takes the word) and a drag
         // selects.
@@ -3226,11 +3255,16 @@ impl Editor {
         self.commit_text();
         if let Some(i) = self.shape_at(p) {
             let text = self.shapes.get(i).is_some_and(|s| s.kind == Kind::Text);
-            if text && (double || self.tool == Tool::Draw(Kind::Text)) {
+            if text && double {
                 self.begin_edit(i, Some(p));
                 self.drag = Drag::TextSelect { index: i };
                 self.layout();
                 return;
+            }
+            // With the text tool, a text is moved by a drag and edited by
+            // a click: editing on the press left no way to move it.
+            if text && self.tool == Tool::Draw(Kind::Text) {
+                self.edit_on_release = Some((i, p));
             }
             self.selected = Some(i);
             self.checkpoint();
@@ -3407,6 +3441,15 @@ impl Editor {
                 {
                     self.refresh_pixels();
                 }
+                if let Some((i, at)) = self.edit_on_release.take() {
+                    let (dx, dy) =
+                        unsafe { (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG)) };
+                    let still = (p.0 - at.0).abs() <= dx as f32 && (p.1 - at.1).abs() <= dy as f32;
+                    if still && i == index {
+                        self.begin_edit(i, Some(p));
+                        self.layout();
+                    }
+                }
                 None
             }
             Drag::None => {
@@ -3451,6 +3494,11 @@ impl Editor {
             };
         }
         if self.handle_at(p).is_some() {
+            return IDC_SIZEALL;
+        }
+        if let Some(i) = self.editing
+            && self.text_grip(i, p)
+        {
             return IDC_SIZEALL;
         }
         if let Some(i) = self.shape_at(p) {
