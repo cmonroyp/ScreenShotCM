@@ -64,7 +64,9 @@ desplazamiento: Intro la termina y Esc la cancela. En el editor: V R F O L A T B
 H C eligen la herramienta (pulsar otra vez la suelta), Ctrl+Z / Ctrl+Y
 deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda. Ctrl+rueda, Ctrl + y Ctrl −
 acercan y alejan; Ctrl+1 muestra el tamaño real y Ctrl+0 ajusta a la ventana.
-El tamaño de la imagen, abajo, abre el menú para cambiarlo: escribe el ancho
+Una imagen más grande que la ventana se arrastra con la mano: con la flecha
+sobre una zona vacía, manteniendo Espacio con cualquier herramienta, o con el
+botón central del ratón; la rueda la recorre también. El tamaño de la imagen, abajo, abre el menú para cambiarlo: escribe el ancho
 y pulsa Intro, o elige un porcentaje.
 
 ## Automatizar

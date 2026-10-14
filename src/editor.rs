@@ -37,20 +37,21 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN,
-    VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_UP,
+    VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
     GetClientRect, GetCursorPos, GetWindowLongPtrW, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT,
     HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_CROSS,
-    IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, IDNO, IDYES, IsZoomed, KillTimer,
+    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, IDNO, IDYES, IsZoomed, KillTimer,
     LoadCursorW, MB_ICONQUESTION, MB_YESNOCANCEL, MINMAXINFO, MessageBoxW, NCCALCSIZE_PARAMS,
     PostMessageW, RegisterClassExW, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SetCursor, SetForegroundWindow, SetTimer,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_APP, WM_CHAR, WM_CLOSE, WM_CREATE,
     WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT,
-    WM_SETCURSOR, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE,
+    WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SIZE, WM_TIMER, WNDCLASSEXW,
+    WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 use windows_numerics::Matrix3x2;
@@ -664,6 +665,16 @@ impl Editor {
         let lx = pan_limit(c.w, w * z, margin);
         let ly = pan_limit(c.h, h * z, margin);
         self.pan = (self.pan.0.clamp(-lx, lx), self.pan.1.clamp(-ly, ly));
+    }
+
+    /// Whether the picture is larger than the canvas along either side, so
+    /// there is somewhere to move it.
+    fn can_pan(&self) -> bool {
+        let c = self.canvas();
+        let (w, h) = self.content_size();
+        let z = self.z();
+        let margin = 24.0 * self.s;
+        pan_limit(c.w, w * z, margin) > 0.0 || pan_limit(c.h, h * z, margin) > 0.0
     }
 
     /// Where content (0, 0) lands in the window.
@@ -3024,6 +3035,11 @@ fn ctrl() -> bool {
     unsafe { GetKeyState(VK_CONTROL.0 as i32) < 0 }
 }
 
+/// Space held turns any tool into the hand, as in image editors.
+fn space() -> bool {
+    unsafe { GetKeyState(VK_SPACE.0 as i32) < 0 }
+}
+
 /// Shift snaps a line to 45° steps and a box to a square.
 fn constrain(kind: Kind, a: Pt, b: Pt) -> Pt {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
@@ -3098,9 +3114,9 @@ impl Editor {
             return;
         }
 
-        // Space-free panning: the middle of nowhere with Ctrl held, or any
-        // zoom beyond the window.
-        if ctrl() {
+        // The hand: Space or Ctrl held, whatever the tool. Not while a text
+        // is being typed, where Space is a space.
+        if ctrl() || (space() && self.editing.is_none()) {
             self.drag = Drag::Pan { last: p };
             return;
         }
@@ -3154,6 +3170,11 @@ impl Editor {
         self.commit_text();
         self.selected = None;
         let Tool::Draw(kind) = self.tool else {
+            // With the arrow, a press on empty canvas grabs the picture
+            // when it is larger than the window.
+            if self.can_pan() {
+                self.drag = Drag::Pan { last: p };
+            }
             self.layout();
             return;
         };
@@ -3345,6 +3366,11 @@ impl Editor {
         {
             return IDC_ARROW;
         }
+        if matches!(self.drag, Drag::Pan { .. })
+            || ((space() && self.editing.is_none()) && self.can_pan())
+        {
+            return IDC_HAND;
+        }
         if self.tool == Tool::Crop {
             return match self.crop_handle_at(p) {
                 Some(0 | 3) => IDC_SIZENWSE,
@@ -3363,6 +3389,7 @@ impl Editor {
             };
         }
         match self.tool {
+            Tool::Select if self.can_pan() => IDC_HAND,
             Tool::Select => IDC_ARROW,
             Tool::Draw(Kind::Text) => IDC_IBEAM,
             _ => IDC_CROSS,
@@ -3704,6 +3731,34 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     ed.on_down((x as f32, y as f32), msg == WM_LBUTTONDBLCLK)
                 });
                 invalidate(hwnd);
+                LRESULT(0)
+            }
+            // The middle button drags the picture with any tool.
+            WM_MBUTTONDOWN => {
+                let (x, y) = lparam_point(lparam.0);
+                SetCapture(hwnd);
+                let grabbed = with(hwnd, |ed| {
+                    let grab = ed.drag == Drag::None && ed.can_pan();
+                    if grab {
+                        ed.drag = Drag::Pan {
+                            last: (x as f32, y as f32),
+                        };
+                    }
+                    grab
+                });
+                // A captured pointer gets no WM_SETCURSOR: show the hand now.
+                if grabbed == Some(true) {
+                    SetCursor(LoadCursorW(None, IDC_HAND).ok());
+                }
+                LRESULT(0)
+            }
+            WM_MBUTTONUP => {
+                let _ = ReleaseCapture();
+                with(hwnd, |ed| {
+                    if matches!(ed.drag, Drag::Pan { .. }) {
+                        ed.drag = Drag::None;
+                    }
+                });
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
