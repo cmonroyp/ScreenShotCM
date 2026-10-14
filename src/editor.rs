@@ -185,6 +185,12 @@ const ZOOM_STEP: f32 = 1.25;
 /// The resize menu's ready-made sizes, as fractions of the current width.
 const RESIZES: [f32; 5] = [0.25, 0.5, 0.75, 1.5, 2.0];
 
+/// How far a picture `content` long may move off centre on a canvas
+/// `canvas` long keeping `margin` at each end: nothing when it fits.
+fn pan_limit(canvas: f32, content: f32, margin: f32) -> f32 {
+    ((content - (canvas - 2.0 * margin)) / 2.0).max(0.0)
+}
+
 /// The size an image of `w0`×`h0` takes at width `w`, keeping its
 /// proportion; `None` when that is outside what the app can hold.
 fn resized_size(w0: u32, h0: u32, w: u32) -> Option<(u32, u32)> {
@@ -645,6 +651,19 @@ impl Editor {
 
     fn z(&self) -> f32 {
         self.zoom.unwrap_or_else(|| self.fit_zoom())
+    }
+
+    /// Keeps the picture on the canvas: centred along a side where it fits,
+    /// and elsewhere movable only until its edge meets the canvas's, with
+    /// the margin `fit_zoom` leaves. The wheel once scrolled it out of sight.
+    fn clamp_pan(&mut self) {
+        let c = self.canvas();
+        let (w, h) = self.content_size();
+        let z = self.z();
+        let margin = 24.0 * self.s;
+        let lx = pan_limit(c.w, w * z, margin);
+        let ly = pan_limit(c.h, h * z, margin);
+        self.pan = (self.pan.0.clamp(-lx, lx), self.pan.1.clamp(-ly, ly));
     }
 
     /// Where content (0, 0) lands in the window.
@@ -1145,6 +1164,7 @@ impl Editor {
     }
 
     fn layout(&mut self) {
+        self.clamp_pan();
         let s = self.s;
         let (cw, ch) = self.client();
         let mut items = Vec::new();
@@ -3256,6 +3276,7 @@ impl Editor {
             Drag::Slider(slider) => self.slide(slider, p.0),
             Drag::Pan { last } => {
                 self.pan = (self.pan.0 + p.0 - last.0, self.pan.1 + p.1 - last.1);
+                self.clamp_pan();
                 self.drag = Drag::Pan { last: p };
             }
             Drag::TextSelect { index } => {
@@ -3751,6 +3772,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_that_fits_stays_centred_and_a_tall_one_stops_at_its_edges() {
+        // Fits: no movement at all.
+        assert_eq!(pan_limit(800.0, 500.0, 24.0), 0.0);
+        // 2000 long on 800 with 24 each side: 1248 to share, 624 each way.
+        assert_eq!(pan_limit(800.0, 2000.0, 24.0), 624.0);
+    }
 
     #[test]
     fn a_resize_keeps_the_proportion_and_the_bounds() {
