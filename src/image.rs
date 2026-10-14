@@ -101,6 +101,9 @@ pub fn save(
 /// allocated.
 pub fn load(path: &Path) -> windows::core::Result<Image> {
     const MAX_SIDE: u32 = 20_000;
+    // A few hundred bytes of PNG can declare 20000×20000: 1.6 GB to allocate.
+    // 100 megapixels (400 MB) still holds three 8K screens side by side.
+    const MAX_PIXELS: u64 = 100_000_000;
     unsafe {
         let factory = wic()?;
         let p = wide(path);
@@ -122,7 +125,7 @@ pub fn load(path: &Path) -> windows::core::Result<Image> {
         )?;
         let (mut w, mut h) = (0u32, 0u32);
         converter.GetSize(&mut w, &mut h)?;
-        if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
+        if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || w as u64 * h as u64 > MAX_PIXELS {
             return Err(windows::core::Error::new(
                 windows::core::HRESULT(0x80070057u32 as i32),
                 format!("imagen de {w}×{h}: fuera de los límites"),

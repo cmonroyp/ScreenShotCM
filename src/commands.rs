@@ -67,7 +67,15 @@ pub fn parse_args(args: &[String]) -> Request {
         let file = query
             .split('&')
             .find_map(|kv| kv.strip_prefix("filepath="))
-            .map(|v| PathBuf::from(percent_decode(v)));
+            .map(percent_decode);
+        // A link can come from any web page. Opening a network path would
+        // make Windows connect to that server and hand it the user's NTLM
+        // credentials, so a link may only name a file on a local drive.
+        let file = match file {
+            Some(f) if is_local_drive_path(&f) => Some(PathBuf::from(f)),
+            Some(_) => return Request::None,
+            None => None,
+        };
         return request_for(verb, file);
     }
     match first.strip_prefix("--") {
@@ -110,6 +118,19 @@ pub fn decode(text: &str) -> Request {
     } else {
         parse_args(&args)
     }
+}
+
+/// `C:\…`: a drive letter, a colon and a backslash, and nothing that turns it
+/// back into a network or device path (`\\server`, `\\?\UNC`, `\\.\`).
+fn is_local_drive_path(p: &str) -> bool {
+    let b = p.as_bytes();
+    b.len() > 3
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && (b[2] == b'\\' || b[2] == b'/')
+        && !p.contains("\\\\")
+        && !p.contains("//")
+        && !p.chars().any(char::is_control)
 }
 
 fn percent_decode(s: &str) -> String {
@@ -166,6 +187,26 @@ mod tests {
         assert_eq!(
             parse_args(&args(&["screenshotcm://capture-window/"])),
             Request::Run(Command::CaptureWindow)
+        );
+    }
+
+    #[test]
+    fn a_link_never_opens_a_network_or_device_path() {
+        for url in [
+            r"screenshotcm://pin?filepath=\\attacker\share\a.png",
+            "screenshotcm://pin?filepath=%5C%5Cattacker%5Cshare%5Ca.png",
+            "screenshotcm://open-annotate?filepath=//attacker/share/a.png",
+            r"screenshotcm://pin?filepath=\\?\UNC\attacker\share\a.png",
+            r"screenshotcm://pin?filepath=\\.\pipe\x",
+            r"screenshotcm://pin?filepath=C:\\attacker\a.png",
+            "screenshotcm://pin?filepath=C:%5Ca%0A--quit",
+            "screenshotcm://pin?filepath=a.png",
+        ] {
+            assert_eq!(parse_args(&args(&[url])), Request::None, "{url}");
+        }
+        assert_eq!(
+            parse_args(&args(&["screenshotcm://pin?filepath=D:/caps/a.png"])),
+            Request::Pin("D:/caps/a.png".into())
         );
     }
 

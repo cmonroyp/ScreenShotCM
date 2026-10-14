@@ -62,9 +62,9 @@ cualquier imagen en el editor.
 
 ## Medidas
 
-| | ScreenShotCM 0.3.0 |
+| | ScreenShotCM 0.3.1 |
 |---|---|
-| Instalador | 432 KB |
+| Instalador | 444 KB |
 | Programa | un solo `.exe`, sin DLL propias |
 | Memoria privada en reposo | 1,8 MB |
 | Hilos en reposo | 2 |

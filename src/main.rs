@@ -85,6 +85,12 @@ fn main() {
     }
 
     let request = commands::parse_args(&args);
+    // Something was asked and refused (an unknown verb, or a link naming a
+    // network path): do nothing at all, rather than whatever a plain launch
+    // would do.
+    if request == Request::None && !args.is_empty() {
+        return;
+    }
 
     // Physical pixels everywhere: a capture must match the screen exactly on
     // every monitor, whatever its scaling.
