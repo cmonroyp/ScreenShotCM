@@ -3057,14 +3057,7 @@ fn prepare_drag(hwnd: HWND) -> Option<PathBuf> {
             return None;
         }
     };
-    let dir = crate::paths::local_dir().join("drag");
-    let _ = std::fs::create_dir_all(&dir);
-    // Last drags are cleared first: the folder only ever holds the latest.
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let _ = std::fs::remove_file(e.path());
-        }
-    }
+    let dir = dragdrop::staging();
     let name = flow::save_path(&agent::settings())
         .file_name()
         .map(|n| n.to_owned())

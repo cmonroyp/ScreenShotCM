@@ -3,11 +3,11 @@
 //! own), so whatever accepts a file from Explorer accepts a capture: mail,
 //! chat, a browser upload, a folder.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::IDataObject;
-use windows::Win32::System::Ole::{DROPEFFECT, DROPEFFECT_COPY};
+use windows::Win32::System::Ole::{DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_MOVE};
 use windows::Win32::UI::Shell::{
     BHID_DataObject, IShellItem, SHCreateItemFromParsingName, SHDoDragDrop,
 };
@@ -15,14 +15,41 @@ use windows::core::PCWSTR;
 
 use crate::util::wide;
 
-/// Starts a drag of `path` and returns once it ends; `true` when something
-/// took the file.
+/// The folder a drag hands its file over from. A file there is a copy made
+/// for the drag, so a target may take it — but Paint opens the dropped
+/// file where it is, and saves over it there: files are kept a week, not
+/// cleared on the next drag, so an edit saved in Paint is not lost to it.
+pub fn staging() -> PathBuf {
+    const KEEP: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+    let dir = crate::paths::local_dir().join("drag");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let old = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > KEEP);
+            if old {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    dir
+}
+
+/// Starts a drag of `path`, a file in `staging`, and returns once it
+/// ends; `true` when something took the file. Copy and move are both
+/// offered: a program picks one without a modifier key — Word copies,
+/// Paint moves — and with copy alone Paint refused the drop unless Ctrl
+/// was held.
 pub fn drag_file(hwnd: HWND, path: &Path) -> bool {
     let Ok(data) = file_data(path) else {
         return false;
     };
     unsafe {
-        SHDoDragDrop(Some(hwnd), &data, None, DROPEFFECT_COPY)
+        SHDoDragDrop(Some(hwnd), &data, None, DROPEFFECT_COPY | DROPEFFECT_MOVE)
             .map(|effect: DROPEFFECT| effect != DROPEFFECT(0))
             .unwrap_or(false)
     }

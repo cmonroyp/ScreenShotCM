@@ -558,7 +558,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 });
                 if let Some((image, path)) = start_drag {
                     let _ = ReleaseCapture();
-                    if ensure_file(&image, &path) && dragdrop::drag_file(hwnd, &path) {
+                    // A copy is dragged, never the history's own file: a
+                    // target may move what it is given.
+                    let staged = path
+                        .file_name()
+                        .map(|name| dragdrop::staging().join(name))
+                        .filter(|copy| {
+                            ensure_file(&image, &path) && std::fs::copy(&path, copy).is_ok()
+                        });
+                    if staged.is_some_and(|copy| dragdrop::drag_file(hwnd, &copy)) {
                         close(hwnd);
                         return LRESULT(0);
                     }
