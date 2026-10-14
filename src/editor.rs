@@ -41,17 +41,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
-    GetClientRect, GetCursorPos, GetWindowLongPtrW, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT,
-    HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW, IDC_CROSS,
-    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, IDNO, IDYES, IsZoomed, KillTimer,
-    LoadCursorW, MB_ICONQUESTION, MB_YESNOCANCEL, MINMAXINFO, MessageBoxW, NCCALCSIZE_PARAMS,
-    PostMessageW, RegisterClassExW, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SetCursor, SetForegroundWindow, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_APP, WM_CHAR, WM_CLOSE, WM_CREATE,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE,
-    WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SIZE, WM_TIMER, WNDCLASSEXW,
-    WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
+    GetClientRect, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, HTBOTTOM, HTBOTTOMLEFT,
+    HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IDC_ARROW,
+    IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, IDNO, IDYES, IsZoomed,
+    KillTimer, LoadCursorW, MB_ICONQUESTION, MB_YESNOCANCEL, MINMAXINFO, MessageBoxW,
+    NCCALCSIZE_PARAMS, PostMessageW, RegisterClassExW, SM_CXDRAG, SM_CYDRAG, SW_MAXIMIZE,
+    SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SetCursor,
+    SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_APP, WM_CHAR,
+    WM_CLOSE, WM_CREATE, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WM_SIZE,
+    WM_TIMER, WNDCLASSEXW, WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{PCWSTR, PWSTR, w};
 use windows_numerics::Matrix3x2;
@@ -168,6 +168,10 @@ fn button_name(act: Act) -> Option<&'static str> {
         Act::Copy => tr("Copiar (Ctrl+C)", "Copy (Ctrl+C)"),
         Act::Save => tr("Guardar (Ctrl+S)", "Save (Ctrl+S)"),
         Act::Resize => tr("Tamaño de la imagen", "Image size"),
+        Act::Drag => tr(
+            "Arrastra la imagen a otra aplicación",
+            "Drag the picture into another app",
+        ),
         Act::Tool(t) => {
             let &(_, _, es, en) = TOOLS.iter().find(|x| x.0 == t)?;
             tr(es, en)
@@ -400,6 +404,13 @@ struct Editor {
     /// The button the mouse went down on: a button acts only when the
     /// release is over the same button.
     pressed: Option<Act>,
+    /// Where that button was pressed: «Arrastrar» starts once the pointer
+    /// leaves it by the system's drag distance.
+    press_at: (f32, f32),
+    /// The file «Arrastrar» hands over, written on the press: written on
+    /// the move instead, a large picture took long enough that the button
+    /// was up before the drag began, and Windows ended it at once.
+    drag_ready: Option<PathBuf>,
     /// False until the window is placed and shown: a DPI change before
     /// that is Windows rescaling a window that is about to be placed.
     shown: bool,
@@ -527,6 +538,8 @@ fn create(
             caret: 0,
             anchor: 0,
             pressed: None,
+            press_at: (0.0, 0.0),
+            drag_ready: None,
             shown: false,
         };
         ed.layout();
@@ -2634,7 +2647,6 @@ enum After {
     Minimize,
     Maximize,
     SaveAs,
-    Drag,
 }
 
 fn act(hwnd: HWND, action: Act) {
@@ -2651,7 +2663,6 @@ fn act(hwnd: HWND, action: Act) {
             let _ = ShowWindow(hwnd, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
         },
         After::SaveAs => save_as(hwnd),
-        After::Drag => drag_out(hwnd),
     }
     invalidate(hwnd);
 }
@@ -2832,7 +2843,12 @@ impl Editor {
                 };
             }
             Act::SaveAs => return After::SaveAs,
-            Act::Drag => return After::Drag,
+            // A drag starts on a move (`drag_started`); released where it
+            // was pressed, it was a click, and the button says how.
+            Act::Drag => self.flash(crate::i18n::tr(
+                "Mantén pulsado y arrastra a otra aplicación",
+                "Hold and drag into another app",
+            )),
             Act::Copy => match self.export() {
                 Ok(img) => match clipboard::copy_image(agent::hwnd(), &img) {
                     Ok(()) => self.flash(crate::i18n::tr(
@@ -2881,6 +2897,22 @@ impl Editor {
         }
         let _ = s;
         After::Nothing
+    }
+
+    /// Whether the pointer, pressed on «Arrastrar», has moved far enough
+    /// to start dragging the picture out. The drag must start while the
+    /// button is down: started on release, Windows ended it at once.
+    fn drag_started(&mut self, p: (f32, f32)) -> bool {
+        if self.pressed != Some(Act::Drag) {
+            return false;
+        }
+        let (dx, dy) = unsafe { (GetSystemMetrics(SM_CXDRAG), GetSystemMetrics(SM_CYDRAG)) };
+        let moved =
+            (p.0 - self.press_at.0).abs() > dx as f32 || (p.1 - self.press_at.1).abs() > dy as f32;
+        if moved {
+            self.pressed = None;
+        }
+        moved
     }
 
     fn flash(&mut self, msg: &str) {
@@ -3013,12 +3045,17 @@ fn save_as(hwnd: HWND) {
 }
 
 /// «Arrastrar»: the picture as a file, dragged into whatever takes files.
-fn drag_out(hwnd: HWND) {
-    let Some(Ok(img)) = with(hwnd, |ed| {
+/// Writes the finished picture where «Arrastrar» hands it over from.
+fn prepare_drag(hwnd: HWND) -> Option<PathBuf> {
+    let img = match with(hwnd, |ed| {
         ed.commit_text();
         ed.export()
-    }) else {
-        return;
+    })? {
+        Ok(img) => img,
+        Err(e) => {
+            log::error(&format!("drag out: {e}"));
+            return None;
+        }
     };
     let dir = crate::paths::local_dir().join("drag");
     let _ = std::fs::create_dir_all(&dir);
@@ -3033,8 +3070,12 @@ fn drag_out(hwnd: HWND) {
         .map(|n| n.to_owned())
         .unwrap_or_default();
     let path = dir.join(name).with_extension("png");
-    if crate::image::save(&img, &path, ImageFormat::Png, 100).is_ok() {
-        dragdrop::drag_file(hwnd, &path);
+    match crate::image::save(&img, &path, ImageFormat::Png, 100) {
+        Ok(()) => Some(path),
+        Err(e) => {
+            log::error(&format!("drag out: {e}"));
+            None
+        }
     }
 }
 
@@ -3118,8 +3159,9 @@ impl Editor {
                 self.slide(slider, p.0);
             } else {
                 self.pressed = Some(item.act);
+                self.press_at = p;
             }
-            return; // Buttons act on release.
+            return; // Buttons act on release; «Arrastrar» on a move.
         }
         if !self.canvas().contains(p) {
             return;
@@ -3763,6 +3805,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 with(hwnd, |ed| {
                     ed.on_down((x as f32, y as f32), msg == WM_LBUTTONDBLCLK)
                 });
+                if with(hwnd, |ed| ed.pressed == Some(Act::Drag)) == Some(true) {
+                    let file = prepare_drag(hwnd);
+                    with(hwnd, |ed| ed.drag_ready = file);
+                }
                 invalidate(hwnd);
                 LRESULT(0)
             }
@@ -3796,7 +3842,22 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             WM_MOUSEMOVE => {
                 let (x, y) = lparam_point(lparam.0);
-                with(hwnd, |ed| ed.on_move((x as f32, y as f32)));
+                let p = (x as f32, y as f32);
+                with(hwnd, |ed| ed.on_move(p));
+                let file = with(hwnd, |ed| {
+                    if ed.drag_started(p) {
+                        ed.drag_ready.take()
+                    } else {
+                        None
+                    }
+                })
+                .flatten();
+                if let Some(file) = file {
+                    // The drag runs its own loop and takes the pointer.
+                    let _ = ReleaseCapture();
+                    let dropped = dragdrop::drag_file(hwnd, &file);
+                    log::info(&format!("drag out: dropped {dropped}"));
+                }
                 invalidate(hwnd);
                 LRESULT(0)
             }
