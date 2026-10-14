@@ -26,7 +26,9 @@
     <Icon Id="AppIcon" SourceFile="$(var.Assets)\screenshotcm.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPNOMODIFY" Value="1" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/cmonroyp/ScreenShotCM" />
+    <Property Id="ARPURLINFOABOUT" Value="https://cmonroyp.github.io/screenshotcm-web/" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/cmonroyp/screenshotcm-web/issues" />
+    <Property Id="ARPCOMMENTS" Value="Open source (GPL-3.0): https://github.com/cmonroyp/ScreenShotCM" />
 
     <!-- %LOCALAPPDATA%\Programs\ScreenShotCM, where Windows puts per-user
          programs. ProgramFiles6432Folder does not redirect there on its own
