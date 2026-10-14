@@ -223,17 +223,24 @@ mod tests {
 
     #[test]
     fn ico_directory_points_at_each_image() {
+        // The 256-pixel entry goes through WIC, as it does for the installer:
+        // without COM on this thread it fell back to a DIB, or crashed when
+        // it borrowed another test's apartment.
+        crate::image::tests::com_for_test();
         let ico = ico_file();
         let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
         let mut end = 0;
         for i in 0..count {
             let e = 6 + 16 * i;
+            let size = ico[e];
             let len = u32::from_le_bytes(ico[e + 8..e + 12].try_into().unwrap()) as usize;
             let off = u32::from_le_bytes(ico[e + 12..e + 16].try_into().unwrap()) as usize;
-            assert_eq!(
-                u32::from_le_bytes(ico[off..off + 4].try_into().unwrap()),
-                40
-            );
+            if size == 0 {
+                assert_eq!(&ico[off..off + 4], b"\x89PNG", "256 pixels: PNG");
+            } else {
+                let header = u32::from_le_bytes(ico[off..off + 4].try_into().unwrap());
+                assert_eq!(header, 40, "{size} pixels: DIB");
+            }
             end = end.max(off + len);
         }
         assert_eq!(end, ico.len());

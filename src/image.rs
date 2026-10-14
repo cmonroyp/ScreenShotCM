@@ -262,7 +262,7 @@ fn encode(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     fn gradient(w: u32, h: u32) -> Image {
@@ -276,6 +276,18 @@ mod tests {
             width: w,
             height: h,
             pixels,
+        }
+    }
+
+    /// Joins this test's thread to COM's multithreaded apartment. Every test
+    /// that reaches WIC calls it on its own thread: one that leaned on another
+    /// test's apartment crashed (0xC0000005) when that test finished first.
+    pub fn com_for_test() {
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
         }
     }
 
@@ -305,12 +317,7 @@ mod tests {
 
     #[test]
     fn png_and_jpeg_are_written_whole() {
-        unsafe {
-            let _ = windows::Win32::System::Com::CoInitializeEx(
-                None,
-                windows::Win32::System::Com::COINIT_MULTITHREADED,
-            );
-        }
+        com_for_test();
         let dir = std::env::temp_dir().join(format!("scm-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let img = gradient(37, 21);
