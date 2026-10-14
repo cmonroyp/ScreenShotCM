@@ -1,0 +1,107 @@
+# Desarrollo de ScreenShotCM
+
+Cómo compilar, probar y empaquetar la aplicación. Para usarla, ver el
+[README](README.md).
+
+## Compilar
+
+Rust con el objetivo `x86_64-pc-windows-gnullvm` y el enlazador de
+[llvm-mingw](https://github.com/mstorsjo/llvm-mingw) — sin Visual Studio.
+
+1. Instalar [rustup](https://rustup.rs) y fijar el host gnullvm, para que
+   `rust-toolchain.toml` (canal `stable`) use `stable-x86_64-pc-windows-gnullvm`:
+   `rustup set default-host x86_64-pc-windows-gnullvm`.
+2. Descomprimir llvm-mingw (`*-ucrt-x86_64.zip`, la versión que fija
+   `.github/workflows/build.yml`) en `%LOCALAPPDATA%\Programs\llvm-mingw`, o
+   apuntar `LLVM_MINGW` a donde esté.
+3. Compilar y probar a través del script, que pone llvm-mingw en el PATH:
+
+```powershell
+./scripts/cargo.ps1 test
+./scripts/cargo.ps1 clippy --release '--' -D warnings
+./scripts/cargo.ps1 build --release
+```
+
+## Instalador (MSI)
+
+Necesita [WiX 5.0.2](https://wixtoolset.org)
+(`dotnet tool install --global wix --version 5.0.2`; las versiones 6 y 7
+exigen una cuota de mantenimiento):
+
+```powershell
+./installer/build.ps1
+```
+
+Deja `dist/ScreenShotCM-<versión>.msi`, `dist/ScreenShotCM.msi` (el nombre
+fijo del enlace «última versión») y su SHA-256. El MSI se instala por usuario
+en `%LOCALAPPDATA%\Programs\ScreenShotCM`, registra el arranque con Windows y
+el enlace `screenshotcm://`, y lleva `LICENSE.txt` y
+`THIRD_PARTY_LICENSES.md`.
+
+## Integración continua
+
+Cada envío a `main` y cada etiqueta `v*` compilan, prueban, pasan clippy y
+empaquetan el MSI en GitHub Actions ([build.yml](.github/workflows/build.yml))
+con las mismas herramientas, fijadas por versión y comprobadas por su hash; las
+acciones están fijadas por commit. El resultado queda como artefacto de la
+ejecución. Dependabot vigila las acciones y el crate.
+
+## Microsoft Store (MSIX, opcional)
+
+`msix/build.ps1` genera `dist/ScreenShotCM-<versión>.msix`. Necesita
+`makeappx.exe` del paquete
+[Microsoft.Windows.SDK.BuildTools](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools)
+descomprimido en `%LOCALAPPDATA%\Programs\windows-sdk-buildtools` (o la
+ruta en `SDK_BUILDTOOLS`).
+
+```powershell
+./msix/build.ps1 -IdentityName "<Package/Identity/Name>" `
+                 -Publisher "<Package/Identity/Publisher>" `
+                 -PublisherDisplayName "<Nombre del editor>"
+```
+
+Los tres valores salen de Partner Center → la aplicación → *Product
+management → Product identity*; sin ellos el paquete lleva valores de prueba.
+Se sube sin firmar: la Store lo firma. Dentro del paquete, *Iniciar con
+Windows* usa la tarea de inicio declarada en `msix/AppxManifest.xml`, que
+también declara el enlace `screenshotcm://`. El texto de la ficha está en
+[msix/store-listing.md](msix/store-listing.md).
+
+## Idiomas
+
+Cada texto de la interfaz está escrito en el código como
+`tr("español", "English")`. El idioma sale de *Ajustes → General → Idioma* o,
+en automático, del idioma de Windows.
+
+## Rendimiento y memoria
+
+| | ScreenShotCM 0.3.1 |
+|---|---|
+| Instalador | 444 KB |
+| Programa | un solo `.exe` de 836 KB, sin DLL propias |
+| Memoria privada en reposo | 1,8 MB |
+| Hilos en reposo | 2–4 |
+
+Medido con el agente instalado y en reposo en la bandeja (`Get-Process`,
+2026-10-13).
+
+- Las ventanas dibujan con Direct2D por software (WARP): uno por hardware
+  carga en el proceso los controladores de cada GPU (130 MB en un portátil con
+  dos) y no se descargan nunca. Cada ventana crea su propia fábrica de
+  Direct2D; una compartida retenía 90 MB.
+- Un fotograma de la selección tarda unos 15 ms sobre 3840×1080 y aparece unos
+  100 ms después de la orden.
+- Tras capturar, los hilos de trabajo que Windows abre para dibujar se retiran
+  solos en menos de un minuto.
+- Después de usarla (editor, capturas fijadas), el agente conserva unos pocos
+  MB que Windows guarda para reutilizar: tras abrir y cerrar 45 capturas
+  fijadas quedó en unos 8 MB y no siguió creciendo.
+
+## Dependencias
+
+Dos crates de la misma familia: [`windows`](https://crates.io/crates/windows)
+y `windows-numerics` (MIT OR Apache-2.0). La bandeja, los atajos, el
+portapapeles, la codificación de imágenes (WIC) y el dibujo (Direct2D) se usan
+directamente desde Windows. Toda dependencia nueva debe ser gratuita y de
+licencia permisiva, y anotarse en
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

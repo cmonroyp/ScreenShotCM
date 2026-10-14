@@ -1,207 +1,119 @@
 # ScreenShotCM
 
-Capturas de pantalla y anotación para Windows 10 y 11. Un agente residente en
-el área de notificación: arranca con Windows, vive en la bandeja y responde a
-atajos globales. Gratis, sin cuenta, sin publicidad y sin conexión a internet.
+**Capturas de pantalla y anotación para Windows 10 y 11.** Pulsa Impr Pant,
+elige un área y la captura ya está en tu portapapeles, lista para anotar.
+Gratis, sin cuenta, sin publicidad y sin conexión a internet.
 
-Sitio: <https://cmonroyp.github.io/screenshotcm-web/> ·
-Privacidad: <https://cmonroyp.github.io/screenshotcm-web/privacy.html> ·
-Soporte: [issues del sitio](https://github.com/cmonroyp/screenshotcm-web/issues)
+![El editor de ScreenShotCM con una captura anotada](https://cmonroyp.github.io/screenshotcm-web/assets/img/es/background.png)
+
+**[Descargar para Windows](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi)** ·
+[Sitio web](https://cmonroyp.github.io/screenshotcm-web/) ·
+[Privacidad](https://cmonroyp.github.io/screenshotcm-web/privacy.html) ·
+[Soporte](https://github.com/cmonroyp/screenshotcm-web/issues) ·
+[English](#english)
 
 ## Instalar
 
-Descarga el instalador y ábrelo:
-
-- Siempre la última versión:
-  [ScreenShotCM.msi](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi).
-- Una versión concreta: en
-  [Releases](https://github.com/cmonroyp/screenshotcm-web/releases) del
-  repositorio del sitio, cada etiqueta `vX.Y.Z` lleva su
-  `ScreenShotCM-X.Y.Z.msi` y su SHA-256.
-
-Se instala para tu usuario, sin pedir administrador, en
-`%LOCALAPPDATA%\Programs\ScreenShotCM`, y deja el agente en la bandeja,
-arrancando con Windows. Una versión nueva se instala encima de la anterior:
-el instalador cierra el agente, reemplaza el programa y lo vuelve a abrir. Se
-desinstala desde *Configuración → Aplicaciones*; tus capturas y ajustes se
-conservan.
+Descarga el instalador y ábrelo. Se instala para tu usuario, sin pedir
+administrador, y queda en la bandeja del sistema, arrancando con Windows. Una
+versión nueva se instala encima de la anterior. Se desinstala desde
+*Configuración → Aplicaciones*; tus capturas y ajustes se conservan.
 
 El instalador todavía no va firmado: Windows SmartScreen puede avisar al
-abrirlo (*Más información → Ejecutar de todas formas*). Comprueba el SHA-256
-publicado si quieres asegurarte de que es el original.
+abrirlo (*Más información → Ejecutar de todas formas*). Cada versión, en
+[Releases](https://github.com/cmonroyp/screenshotcm-web/releases), publica su
+SHA-256 para comprobar que el archivo es el original.
 
 ## Qué hace
 
-**Capturar** (atajos por defecto, cambiables en *Ajustes → Atajos de
-teclado*):
+- **Capturar** un área, una ventana, la pantalla completa o la misma área
+  otra vez, también con temporizador. La pantalla se congela mientras
+  seleccionas, con lupa, cruz y medidas.
+- **Anotar** en el editor, que se abre al capturar: flechas rectas o curvas,
+  rectángulos, elipses, líneas, texto, contadores numerados, foco, lápiz,
+  resaltador, y pixelado o desenfoque para ocultar datos. Recorte, deshacer y
+  zoom.
+- **Presentar** la captura sobre un fondo degradado, con margen, esquinas
+  redondeadas y sombra.
+- **Compartir**: cada captura va al portapapeles y aparece en una miniatura
+  para copiarla, guardarla o arrastrarla a otra aplicación. Historial del
+  último mes.
+- **Fijar** una captura sobre todas las ventanas como referencia.
+- **Ligera**: menos de 2 MB de memoria en reposo y un único ejecutable.
+- En **español e inglés**, según el idioma de Windows o el que elijas.
+
+## Atajos
+
+Por defecto (se cambian en *Ajustes → Atajos de teclado*):
 
 | | |
 |---|---|
-| Área | Impr Pant |
-| Ventana | Shift+Impr Pant (o Espacio durante la selección) |
+| Capturar área | Impr Pant |
+| Capturar ventana | Shift+Impr Pant (o Espacio durante la selección) |
 | Pantalla completa | Ctrl+Impr Pant |
 | Área anterior | Alt+Shift+Impr Pant |
-| Temporizador | menú de la bandeja |
 
-La pantalla se congela y se muestra con una cruz, las coordenadas y una lupa.
-Al arrastrar se ve el tamaño; Shift hace la selección cuadrada, las flechas
-mueven el puntero de píxel en píxel, Esc o clic derecho cancelan.
+Durante la selección: Shift la hace cuadrada, las flechas mueven el puntero
+píxel a píxel, Esc o clic derecho cancelan. En el editor: V R F O L A T B S N P
+H C eligen la herramienta (pulsar otra vez la suelta), Ctrl+Z / Ctrl+Y
+deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda, Ctrl+rueda hace zoom.
 
-**Después de capturar** la imagen va al portapapeles y al historial, se abre
-el editor (se puede desactivar) y aparece la miniatura de acceso rápido abajo
-a la izquierda: al pasar el ratón ofrece Copiar y Guardar, y en las esquinas
-cerrar, fijar, anotar y eliminar. Arrastrarla suelta la imagen en otro
-programa; doble clic abre el editor.
+## Automatizar
 
-**El editor**: recorte, fondo (degradados o colores, margen, redondeo y
-sombra), selección, rectángulo, rectángulo relleno, elipse, línea, flecha
-recta o curva, texto (normal o etiqueta, editable con cursor y selección),
-pixelado o desenfoque, foco, contador, lápiz y resaltador, con color y
-tamaño. Volver a pulsar la herramienta activa la suelta. Deshacer y rehacer,
-zoom, *Guardar como…*, *Listo* (guarda las anotaciones en la captura), y
-abajo *Arrastrar*, Fijar, Copiar y Guardar. Atajos: V R F O L A T B S N P H C
-para las herramientas, Ctrl+Z / Ctrl+Y, Ctrl+C, Ctrl+S, Supr, Intro,
-Ctrl+rueda para el zoom.
-
-**Capturas fijadas**: flotan sobre todo; se arrastran, la rueda cambia el
-tamaño, Ctrl+rueda la opacidad, las flechas las mueven; el menú del clic
-derecho copia, guarda, anota y las bloquea (los clics las atraviesan).
-
-**Historial**: las capturas del último mes, con copiar, anotar, fijar y
-eliminar. **Abrir del portapapeles** y **Anotar una imagen…** abren
-cualquier imagen en el editor.
-
-**Idioma**: español e inglés. Por defecto, el de Windows; se puede fijar en
-*Ajustes → General → Idioma*. Cada texto de la interfaz está escrito en el
-código como `tr("español", "English")`.
-
-## Medidas
-
-| | ScreenShotCM 0.3.1 |
-|---|---|
-| Instalador | 444 KB |
-| Programa | un solo `.exe` de 836 KB, sin DLL propias |
-| Memoria privada en reposo | 1,8 MB |
-| Hilos en reposo | 2–4 |
-
-Medido con el agente instalado y en reposo en la bandeja (`Get-Process`,
-2026-10-13). Las ventanas dibujan con Direct2D por software (WARP): uno por
-hardware carga en el proceso los controladores de cada GPU (130 MB en un
-portátil con dos) y no se descargan nunca. Un fotograma de la selección tarda
-unos 15 ms sobre 3840×1080; aparece unos 100 ms después de la orden. Tras
-capturar, los hilos de trabajo que Windows abre para dibujar se retiran solos
-en menos de un minuto. Después de usarla (editor, capturas fijadas), el agente
-conserva unos pocos MB que Windows guarda para reutilizar: tras abrir y cerrar
-45 capturas fijadas quedó en unos 8 MB y no siguió creciendo.
-
-## Uso desde la línea de comandos o una URL
-
-Un segundo arranque entrega su orden al agente que ya corre:
+Desde la línea de comandos, un acceso directo o un enlace:
 
 ```
 screenshotcm.exe --capture-area
 screenshotcm.exe --pin C:\captura.png
 screenshotcm.exe C:\imagen.png          (la abre en el editor)
 screenshotcm://capture-window
-screenshotcm://pin?filepath=C%3A%5Ccaptura.png
 ```
 
-Verbos: `capture-area`, `capture-previous-area`, `capture-fullscreen`,
+Órdenes: `capture-area`, `capture-previous-area`, `capture-fullscreen`,
 `capture-window`, `self-timer`, `open-from-clipboard`, `open-file`,
 `open-annotate`, `pin`, `open-history`, `restore-recently-closed`,
 `unlock-pins`, `close-pins`, `open-save-folder`, `open-settings`,
-`reload-settings`, `quit`.
+`reload-settings`, `quit`. Un enlace `screenshotcm://` solo acepta archivos en
+una unidad local de tu equipo.
 
-Un enlace `screenshotcm://` puede venir de cualquier página web, así que solo
-acepta rutas en una unidad local (`C:\…`): una ruta de red (`\\servidor\…`)
-haría que Windows entregara las credenciales del usuario a ese servidor. Un
-enlace rechazado no hace nada.
+## Privacidad y seguridad
 
-## Ajustes y datos
+ScreenShotCM no se conecta a internet, no tiene telemetría y no escucha en
+ningún puerto. Tus capturas y ajustes se quedan en tu equipo
+(`%LOCALAPPDATA%\ScreenShotCM` y `%APPDATA%\ScreenShotCM`). Ver la
+[política de privacidad](https://cmonroyp.github.io/screenshotcm-web/privacy.html).
 
-Menú de la bandeja → *Ajustes…*. Se guardan en
-`%APPDATA%\ScreenShotCM\settings.ini`; el historial y los registros, en
-`%LOCALAPPDATA%\ScreenShotCM`. Nada sale del equipo.
-
-## Compilar
-
-Rust con el objetivo `x86_64-pc-windows-gnullvm` y el enlazador de
-[llvm-mingw](https://github.com/mstorsjo/llvm-mingw) — sin Visual Studio.
-
-1. Instalar [rustup](https://rustup.rs) y fijar el host gnullvm, para que
-   `rust-toolchain.toml` (canal `stable`) use `stable-x86_64-pc-windows-gnullvm`:
-   `rustup set default-host x86_64-pc-windows-gnullvm`.
-2. Descomprimir llvm-mingw (`*-ucrt-x86_64.zip`, la versión que fija
-   `.github/workflows/build.yml`) en `%LOCALAPPDATA%\Programs\llvm-mingw`, o
-   apuntar `LLVM_MINGW` a donde esté.
-3. Compilar y probar a través del script, que pone llvm-mingw en el PATH:
-
-```powershell
-./scripts/cargo.ps1 test
-./scripts/cargo.ps1 clippy --release '--' -D warnings
-./scripts/cargo.ps1 build --release
-```
-
-El instalador necesita además [WiX 5.0.2](https://wixtoolset.org)
-(`dotnet tool install --global wix --version 5.0.2`; las versiones 6 y 7
-exigen una cuota de mantenimiento):
-
-```powershell
-./installer/build.ps1
-```
-
-Deja `dist/ScreenShotCM-<versión>.msi`, `dist/ScreenShotCM.msi` (el nombre
-fijo del enlace «última versión») y su SHA-256.
-
-**Integración continua**: cada envío a `main` y cada etiqueta `v*` compilan,
-prueban y empaquetan el MSI en GitHub Actions
-([build.yml](.github/workflows/build.yml)) con las mismas herramientas,
-fijadas por versión y comprobadas por su hash; el resultado queda como
-artefacto de la ejecución. Dependabot vigila las acciones y el crate.
-
-## Microsoft Store (MSIX, opcional)
-
-`msix/build.ps1` genera `dist/ScreenShotCM-<versión>.msix`. Necesita
-`makeappx.exe` del paquete
-[Microsoft.Windows.SDK.BuildTools](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools)
-descomprimido en `%LOCALAPPDATA%\Programs\windows-sdk-buildtools` (o la
-ruta en `SDK_BUILDTOOLS`).
-
-```powershell
-./msix/build.ps1 -IdentityName "<Package/Identity/Name>" `
-                 -Publisher "<Package/Identity/Publisher>" `
-                 -PublisherDisplayName "<Nombre del editor>"
-```
-
-Los tres valores salen de Partner Center → la aplicación → *Product
-management → Product identity*; sin ellos el paquete lleva valores de prueba.
-Se sube sin firmar: la Store lo firma. Dentro del paquete, *Iniciar con
-Windows* usa la tarea de inicio declarada en `msix/AppxManifest.xml`, que
-también declara el enlace `screenshotcm://`. El texto de la ficha está en
-[msix/store-listing.md](msix/store-listing.md).
-
-## Seguridad
-
-ScreenShotCM no abre conexiones de red ni escucha en ningún puerto, se ejecuta
-sin administrador y solo acepta órdenes de procesos de la misma sesión. Para
-reportar una vulnerabilidad, ver [SECURITY.md](SECURITY.md): por el aviso
-privado de GitHub, nunca en un issue público.
-
-## Dependencias
-
-Dos crates, de la misma familia: [`windows`](https://crates.io/crates/windows)
-y `windows-numerics` (MIT OR Apache-2.0). La bandeja, los atajos, el
-portapapeles, la codificación de imágenes (WIC) y el dibujo (Direct2D) se usan
-directamente desde Windows. Ver [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+Si encuentras una vulnerabilidad, repórtala en privado como explica
+[SECURITY.md](SECURITY.md), nunca en un issue público.
 
 ## Licencia
 
-ScreenShotCM es software libre bajo la
-[GNU General Public License v3.0 o posterior](LICENSE): puedes usarlo,
-estudiarlo, modificarlo y redistribuirlo, y cualquier versión que distribuyas
-debe publicarse también con su código bajo la misma licencia. El instalador
-lleva el texto de la licencia (`LICENSE.txt`).
+Software libre bajo la [GNU General Public License v3.0 o posterior](LICENSE):
+puedes usarlo, estudiarlo, modificarlo y redistribuirlo, y cualquier versión
+que distribuyas debe publicarse también con su código bajo la misma licencia.
+El nombre «ScreenShotCM» y su icono no están cubiertos: una versión modificada
+debe llevar otro nombre y otro icono ([TRADEMARKS.md](TRADEMARKS.md)).
 
-El nombre «ScreenShotCM» y su icono no están cubiertos por la licencia: una
-versión modificada debe llevar otro nombre y otro icono. Ver
-[TRADEMARKS.md](TRADEMARKS.md).
+Para compilarlo o contribuir, ver [DEVELOPMENT.md](DEVELOPMENT.md).
+
+---
+
+## English
+
+**Screenshots and annotation for Windows 10 and 11.** Press Print Screen, pick
+an area, and the capture is already on your clipboard, ready to annotate.
+Free, no account, no ads, no internet connection.
+
+- **[Download for Windows](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi)**
+  — installs for your user, no administrator needed, and starts with Windows.
+  The installer is not signed yet, so SmartScreen may warn you (*More info →
+  Run anyway*); each release publishes its SHA-256.
+- Capture an area, a window or the full screen; annotate with curved arrows,
+  text, counters, pixelate and more; present it on a gradient; copy, save,
+  drag or pin it. Under 2 MB of memory at rest. English and Spanish.
+- Default shortcuts: Print Screen (area), Shift+Print Screen (window),
+  Ctrl+Print Screen (full screen), Alt+Shift+Print Screen (previous area).
+- Privacy: nothing leaves your PC — [privacy policy](https://cmonroyp.github.io/screenshotcm-web/privacy.html).
+  Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
+- Licence: [GPL-3.0-or-later](LICENSE); the name and icon are reserved
+  ([TRADEMARKS.md](TRADEMARKS.md)). Building: [DEVELOPMENT.md](DEVELOPMENT.md).
