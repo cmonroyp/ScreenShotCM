@@ -35,8 +35,8 @@ SHA-256 para comprobar que el archivo es el original.
   muestra cómo crece. Los encabezados fijos aparecen una sola vez.
 - **Anotar** en el editor, que se abre al capturar: flechas rectas o curvas,
   rectángulos, elipses, líneas, texto, contadores numerados, foco, lápiz,
-  resaltador, y pixelado o desenfoque para ocultar datos. Recorte, deshacer y
-  zoom.
+  resaltador, y pixelado o desenfoque para ocultar datos. Recorte, cambio de
+  tamaño (en píxeles o en %, sin deformar), deshacer y zoom.
 - **Presentar** la captura sobre un fondo degradado, con margen, esquinas
   redondeadas y sombra.
 - **Compartir**: cada captura va al portapapeles y aparece en una miniatura
@@ -62,7 +62,10 @@ Durante la selección: Shift la hace cuadrada, las flechas mueven el puntero
 píxel a píxel, Esc o clic derecho cancelan. Durante una captura con
 desplazamiento: Intro la termina y Esc la cancela. En el editor: V R F O L A T B S N P
 H C eligen la herramienta (pulsar otra vez la suelta), Ctrl+Z / Ctrl+Y
-deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda, Ctrl+rueda hace zoom.
+deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda. Ctrl+rueda, Ctrl + y Ctrl −
+acercan y alejan; Ctrl+1 muestra el tamaño real y Ctrl+0 ajusta a la ventana.
+El tamaño de la imagen, abajo, abre el menú para cambiarlo: escribe el ancho
+y pulsa Intro, o elige un porcentaje.
 
 ## Automatizar
 

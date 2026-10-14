@@ -22,7 +22,8 @@ use windows::Win32::Graphics::Direct2D::{
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING, IDWriteTextFormat,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING,
+    IDWriteTextFormat,
 };
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::{
@@ -165,6 +166,7 @@ fn button_name(act: Act) -> Option<&'static str> {
         Act::Pin => tr("Fijar en pantalla", "Pin to screen"),
         Act::Copy => tr("Copiar (Ctrl+C)", "Copy (Ctrl+C)"),
         Act::Save => tr("Guardar (Ctrl+S)", "Save (Ctrl+S)"),
+        Act::Resize => tr("Tamaño de la imagen", "Image size"),
         Act::Tool(t) => {
             let &(_, _, es, en) = TOOLS.iter().find(|x| x.0 == t)?;
             tr(es, en)
@@ -176,6 +178,19 @@ fn button_name(act: Act) -> Option<&'static str> {
 const STROKE_SIZES: [f32; 6] = [2.0, 4.0, 6.0, 8.0, 12.0, 16.0];
 const TEXT_SIZES: [f32; 9] = [14.0, 18.0, 24.0, 30.0, 36.0, 48.0, 64.0, 72.0, 96.0];
 const ZOOMS: [Option<f32>; 6] = [None, Some(0.25), Some(0.5), Some(1.0), Some(2.0), Some(4.0)];
+const MIN_ZOOM: f32 = 0.05;
+const MAX_ZOOM: f32 = 8.0;
+/// Ctrl + / Ctrl − and the menu's steps: a quarter, so four steps double.
+const ZOOM_STEP: f32 = 1.25;
+/// The resize menu's ready-made sizes, as fractions of the current width.
+const RESIZES: [f32; 5] = [0.25, 0.5, 0.75, 1.5, 2.0];
+
+/// The size an image of `w0`×`h0` takes at width `w`, keeping its
+/// proportion; `None` when that is outside what the app can hold.
+fn resized_size(w0: u32, h0: u32, w: u32) -> Option<(u32, u32)> {
+    let h = (h0 as f64 * w as f64 / w0.max(1) as f64).round().max(1.0) as u32;
+    crate::image::within_bounds(w, h).then_some((w, h))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Act {
@@ -206,6 +221,14 @@ enum Act {
     PickObscure(Obscure),
     PickArrowCurved(bool),
     PickZoom(Option<f32>),
+    /// One step in or out, about the middle of the canvas.
+    ZoomStep(bool),
+    /// The image's size, in the bottom bar: opens the resize menu.
+    Resize,
+    /// Resizes the image to this width, keeping its proportion.
+    ResizeTo(u32),
+    /// Resizes to the width typed in the menu.
+    ResizeTyped,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -265,6 +288,7 @@ enum Popover {
     Size,
     Style,
     Zoom,
+    Resize,
 }
 
 #[derive(Clone)]
@@ -348,6 +372,10 @@ struct Editor {
     pan: (f32, f32),
     mouse: (f32, f32),
     popover: Option<Popover>,
+    /// The width typed in the resize menu, and whether the next digit
+    /// replaces it (it starts as the current width, selected).
+    resize_text: String,
+    resize_fresh: bool,
     items: Vec<Item>,
     pop_items: Vec<Item>,
     /// The history file this capture came from; «Listo» writes it back.
@@ -462,6 +490,8 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
             pan: (0.0, 0.0),
             mouse: (0.0, 0.0),
             popover: None,
+            resize_text: String::new(),
+            resize_fresh: true,
             items: Vec::new(),
             pop_items: Vec::new(),
             source,
@@ -1316,6 +1346,16 @@ impl Editor {
             act: Act::Redo,
             face: Face::Icon(Icon::Redo),
         });
+        items.push(Item {
+            r: R {
+                x: 98.0 * s + 2.0 * small + 12.0 * s,
+                y: by,
+                w: 140.0 * s,
+                h: small,
+            },
+            act: Act::Resize,
+            face: Face::Dropdown(format!("{} × {}", self.base.width, self.base.height)),
+        });
         let grip_w = 128.0 * s;
         items.push(Item {
             r: R {
@@ -1423,6 +1463,7 @@ impl Editor {
             Popover::Size => self.item(Act::Size),
             Popover::Style => self.item(Act::Style),
             Popover::Zoom => self.item(Act::Zoom),
+            Popover::Resize => self.item(Act::Resize),
         };
         let Some(anchor) = anchor.map(|i| i.r) else {
             self.popover = None;
@@ -1448,7 +1489,7 @@ impl Editor {
                     });
                 }
             }
-            Popover::Size | Popover::Style | Popover::Zoom => {
+            Popover::Size | Popover::Style | Popover::Zoom | Popover::Resize => {
                 let rows: Vec<(Act, String)> = match pop {
                     Popover::Size if self.active_kind() == Some(Kind::Text) => TEXT_SIZES
                         .iter()
@@ -1488,23 +1529,69 @@ impl Editor {
                             crate::i18n::tr("Desenfocar (suave)", "Blur (smooth)").into(),
                         ),
                     ],
-                    _ => ZOOMS
-                        .iter()
-                        .map(|z| {
-                            (
-                                Act::PickZoom(*z),
-                                z.map(|v| format!("{}%", (v * 100.0) as u32)).unwrap_or(
-                                    crate::i18n::tr("Ajustar a la ventana", "Fit to window").into(),
-                                ),
-                            )
-                        })
-                        .collect(),
+                    // The width is typed straight into the first row; each
+                    // other row is a ready-made size, with what it makes.
+                    Popover::Resize => {
+                        let (w0, h0) = (self.base.width, self.base.height);
+                        let typed = self.resize_text.parse::<u32>().ok();
+                        let result = match typed.and_then(|w| resized_size(w0, h0, w)) {
+                            Some((w, h)) => format!("{w} × {h}"),
+                            None => crate::i18n::tr("fuera de límites", "out of range").into(),
+                        };
+                        let mut rows = vec![(
+                            Act::ResizeTyped,
+                            format!(
+                                "{} {}\u{258F} px\t{result}",
+                                crate::i18n::tr("Ancho:", "Width:"),
+                                self.resize_text
+                            ),
+                        )];
+                        for k in RESIZES {
+                            let w = (w0 as f32 * k).round() as u32;
+                            if let Some((w, h)) = resized_size(w0, h0, w) {
+                                rows.push((
+                                    Act::ResizeTo(w),
+                                    format!("{}%\t{w} × {h}", (k * 100.0) as u32),
+                                ));
+                            }
+                        }
+                        rows
+                    }
+                    // A tab separates the name from its shortcut, drawn on
+                    // the right: the menu is where the shortcuts are found.
+                    _ => [
+                        (
+                            Act::ZoomStep(true),
+                            format!("{}\tCtrl +", crate::i18n::tr("Acercar", "Zoom in")),
+                        ),
+                        (
+                            Act::ZoomStep(false),
+                            format!("{}\tCtrl −", crate::i18n::tr("Alejar", "Zoom out")),
+                        ),
+                    ]
+                    .into_iter()
+                    .chain(ZOOMS.iter().map(|z| {
+                        let label = match z {
+                            None => format!(
+                                "{}\tCtrl+0",
+                                crate::i18n::tr("Ajustar a la ventana", "Fit to window")
+                            ),
+                            Some(v) if *v == 1.0 => "100%\tCtrl+1".into(),
+                            Some(v) => format!("{}%", (v * 100.0) as u32),
+                        };
+                        (Act::PickZoom(*z), label)
+                    }))
+                    .collect(),
                 };
                 let row_h = 28.0 * s;
-                let w = 170.0 * s;
+                let w = match pop {
+                    Popover::Zoom => 230.0,
+                    Popover::Resize => 300.0,
+                    _ => 170.0,
+                } * s;
                 let total = rows.len() as f32 * row_h + 2.0 * pad;
                 // The zoom menu opens upwards from the bottom bar.
-                let top = if pop == Popover::Zoom {
+                let top = if matches!(pop, Popover::Zoom | Popover::Resize) {
                     anchor.y - 6.0 * s - total + pad
                 } else {
                     anchor.y + anchor.h + 6.0 * s + pad
@@ -2342,20 +2429,21 @@ impl Editor {
                         }
                         if let Face::Label(label) = &item.face {
                             let color = if selected { p.on_accent } else { p.text };
-                            self.text(
-                                t,
-                                g,
-                                label,
-                                R {
-                                    x: r.x + 10.0 * s,
-                                    y: r.y,
-                                    w: r.w - 20.0 * s,
-                                    h: r.h,
-                                },
-                                color,
-                                false,
-                                false,
-                            );
+                            let inner = R {
+                                x: r.x + 10.0 * s,
+                                y: r.y,
+                                w: r.w - 20.0 * s,
+                                h: r.h,
+                            };
+                            let (name, keys) = label.split_once('\t').unwrap_or((label, ""));
+                            self.text(t, g, name, inner, color, false, false);
+                            if !keys.is_empty() {
+                                let _ = g.ui.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                                g.brush
+                                    .SetColor(if selected { &p.on_accent } else { &p.text_dim });
+                                crate::gfx::draw_str(t, &g.brush, &g.ui, keys, &inner.d2d());
+                                let _ = g.ui.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                            }
                         }
                     }
                 }
@@ -2588,13 +2676,18 @@ impl Editor {
                 bg.fill = fill;
                 self.background = Some(bg);
             }
-            Act::Color | Act::Size | Act::Style | Act::Zoom => {
+            Act::Color | Act::Size | Act::Style | Act::Zoom | Act::Resize => {
                 let pop = match action {
                     Act::Color => Popover::Color,
                     Act::Size => Popover::Size,
                     Act::Style => Popover::Style,
+                    Act::Resize => Popover::Resize,
                     _ => Popover::Zoom,
                 };
+                if pop == Popover::Resize {
+                    self.resize_text = self.base.width.to_string();
+                    self.resize_fresh = true;
+                }
                 self.popover = if self.popover == Some(pop) {
                     None
                 } else {
@@ -2644,6 +2737,20 @@ impl Editor {
                 self.zoom = z;
                 self.pan = (0.0, 0.0);
                 self.popover = None;
+                self.layout();
+            }
+            Act::ResizeTo(w) => self.resize_to(w),
+            Act::ResizeTyped => {
+                if let Ok(w) = self.resize_text.parse::<u32>() {
+                    self.resize_to(w);
+                }
+            }
+            Act::ZoomStep(closer) => {
+                let c = self.canvas();
+                self.zoom_about(
+                    if closer { ZOOM_STEP } else { 1.0 / ZOOM_STEP },
+                    (c.x + c.w / 2.0, c.y + c.h / 2.0),
+                );
                 self.layout();
             }
             Act::Undo => {
@@ -3249,6 +3356,39 @@ impl Editor {
         }
         let c = ctrl();
         let sh = shift();
+        // While the resize menu is open, digits, Backspace and Enter belong
+        // to its width field.
+        if self.popover == Some(Popover::Resize) && !c {
+            let digit = match key {
+                0x30..=0x39 => Some(key - 0x30),
+                0x60..=0x69 => Some(key - 0x60),
+                _ => None,
+            };
+            if let Some(d) = digit {
+                if self.resize_fresh {
+                    self.resize_text.clear();
+                    self.resize_fresh = false;
+                }
+                if self.resize_text.len() < 5 {
+                    self.resize_text.push(char::from(b'0' + d as u8));
+                }
+                self.layout_popover();
+                return None;
+            }
+            if key == VK_BACK.0 {
+                if self.resize_fresh {
+                    self.resize_text.clear();
+                    self.resize_fresh = false;
+                } else {
+                    self.resize_text.pop();
+                }
+                self.layout_popover();
+                return None;
+            }
+            if key == VK_RETURN.0 {
+                return Some(Act::ResizeTyped);
+            }
+        }
         match key {
             k if k == VK_ESCAPE.0 => {
                 if self.popover.is_some() {
@@ -3304,6 +3444,9 @@ impl Editor {
             0x53 if c => return Some(Act::Save),
             0x30 if c => return Some(Act::PickZoom(None)),
             0x31 if c => return Some(Act::PickZoom(Some(1.0))),
+            // The "+" and "−" keys of the main block and of the keypad.
+            0xBB | 0x6B if c => return Some(Act::ZoomStep(true)),
+            0xBD | 0x6D if c => return Some(Act::ZoomStep(false)),
             k if !c => {
                 let tool = match k {
                     0x56 => Some(Tool::Select),
@@ -3353,15 +3496,49 @@ impl Editor {
         }
     }
 
+    /// Resizes the image to width `w`, keeping its proportion, and the
+    /// marks on it with it. One undo step; a size the app cannot hold does
+    /// nothing (the menu says so before).
+    fn resize_to(&mut self, w: u32) {
+        let (w0, h0) = (self.base.width, self.base.height);
+        let Some((w, h)) = resized_size(w0, h0, w).filter(|&(w, _)| w != w0) else {
+            return;
+        };
+        self.commit_text();
+        let image = match self.base.resized(w, h) {
+            Ok(image) => image,
+            Err(e) => {
+                log::error(&format!("editor resize: {e}"));
+                return;
+            }
+        };
+        self.checkpoint();
+        let (kx, ky) = (w as f32 / w0 as f32, h as f32 / h0 as f32);
+        for s in &mut self.shapes {
+            s.scale(kx, ky);
+        }
+        self.base = Rc::new(image);
+        self.crop = None;
+        self.refresh_pixels();
+        self.popover = None;
+        self.pop_items.clear();
+        self.zoom = None;
+        self.pan = (0.0, 0.0);
+        self.layout();
+    }
+
+    /// Multiplies the zoom by `factor`, keeping the image point under `p`
+    /// where it is.
+    fn zoom_about(&mut self, factor: f32, p: (f32, f32)) {
+        let before = self.to_image(p);
+        self.zoom = Some((self.z() * factor).clamp(MIN_ZOOM, MAX_ZOOM));
+        let after = self.to_view(before);
+        self.pan = (self.pan.0 + p.0 - after.0, self.pan.1 + p.1 - after.1);
+    }
+
     fn on_wheel(&mut self, delta: i16, p: (f32, f32)) {
         if ctrl() {
-            // Zoom about the pointer.
-            let before = self.to_image(p);
-            let z = self.z();
-            let factor = if delta > 0 { 1.15 } else { 1.0 / 1.15 };
-            self.zoom = Some((z * factor).clamp(0.05, 8.0));
-            let after = self.to_view(before);
-            self.pan = (self.pan.0 + p.0 - after.0, self.pan.1 + p.1 - after.1);
+            self.zoom_about(if delta > 0 { 1.15 } else { 1.0 / 1.15 }, p);
         } else {
             let step = delta as f32 / 120.0 * 60.0 * self.s;
             if shift() {
@@ -3574,6 +3751,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_resize_keeps_the_proportion_and_the_bounds() {
+        assert_eq!(resized_size(1894, 13297, 947), Some((947, 6649)));
+        assert_eq!(resized_size(1000, 3, 10), Some((10, 1)));
+        assert_eq!(resized_size(1894, 13297, 0), None);
+        // Twice a tall scrolling capture would pass 20 000 pixels a side.
+        assert_eq!(resized_size(1894, 13297, 3788), None);
+    }
 
     #[test]
     fn the_frame_never_exceeds_a_small_or_portrait_work_area() {

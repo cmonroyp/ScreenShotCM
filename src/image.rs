@@ -9,7 +9,8 @@ use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatJpeg, GUID_ContainerFormatPng,
     GUID_WICPixelFormat24bppBGR, GUID_WICPixelFormat32bppBGRA, IWICBitmapFrameEncode,
     IWICImagingFactory, WICBitmapDitherTypeNone, WICBitmapEncoderNoCache,
-    WICBitmapInterpolationModeFant, WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
+    WICBitmapInterpolationModeFant, WICBitmapInterpolationModeHighQualityCubic,
+    WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
 };
 use windows::Win32::System::Com::StructuredStorage::{IPropertyBag2, PROPBAG2};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
@@ -56,6 +57,44 @@ impl Image {
             width: r.w as u32,
             height: r.h as u32,
             pixels,
+        }
+    }
+
+    /// A copy scaled to `w`×`h` by WIC: Fant when shrinking, which averages
+    /// every pixel it drops, and high-quality cubic when enlarging.
+    pub fn resized(&self, w: u32, h: u32) -> windows::core::Result<Image> {
+        if !within_bounds(w, h) {
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT(0x80070057u32 as i32),
+                crate::i18n::trs(
+                    format!("imagen de {w}×{h}: demasiado grande o vacía"),
+                    format!("{w}×{h} image: too large or empty"),
+                ),
+            ));
+        }
+        unsafe {
+            let factory = wic()?;
+            let source = factory.CreateBitmapFromMemory(
+                self.width,
+                self.height,
+                &GUID_WICPixelFormat32bppBGRA,
+                self.stride() as u32,
+                &self.pixels,
+            )?;
+            let mode = if w < self.width {
+                WICBitmapInterpolationModeFant
+            } else {
+                WICBitmapInterpolationModeHighQualityCubic
+            };
+            let scaler = factory.CreateBitmapScaler()?;
+            scaler.Initialize(&source, w, h, mode)?;
+            let mut pixels = vec![0u8; w as usize * h as usize * 4];
+            scaler.CopyPixels(std::ptr::null(), w * 4, &mut pixels)?;
+            Ok(Image {
+                width: w,
+                height: h,
+                pixels,
+            })
         }
     }
 
@@ -318,6 +357,26 @@ pub mod tests {
         assert_eq!(&c.pixels[..4], &[3, 2, 3 ^ 2, 255]);
         let last = c.pixels.len() - 4;
         assert_eq!(&c.pixels[last..], &[6, 6, 0, 255]);
+    }
+
+    #[test]
+    fn resized_keeps_a_flat_colour_and_takes_the_new_size() {
+        com_for_test();
+        let flat = Image {
+            width: 40,
+            height: 30,
+            pixels: [10u8, 120, 200, 255].repeat(40 * 30),
+        };
+        for (w, h) in [(20, 15), (100, 75)] {
+            let r = flat.resized(w, h).unwrap();
+            assert_eq!(
+                (r.width, r.height, r.pixels.len()),
+                (w, h, (w * h * 4) as usize)
+            );
+            assert!(r.pixels.chunks(4).all(|p| p == [10, 120, 200, 255]));
+        }
+        assert!(flat.resized(0, 10).is_err());
+        assert!(flat.resized(MAX_SIDE + 1, 10).is_err());
     }
 
     #[test]

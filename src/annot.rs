@@ -300,6 +300,20 @@ impl Shape {
         }
     }
 
+    /// Follows the image it is drawn on when that is resized: every point
+    /// by `kx`, `ky`, and the stroke, font or counter size by `kx` (the two
+    /// differ only by rounding — a resize keeps the proportion).
+    pub fn scale(&mut self, kx: f32, ky: f32) {
+        let at = |p: Pt| (p.0 * kx, p.1 * ky);
+        self.a = at(self.a);
+        self.b = at(self.b);
+        self.ctrl = self.ctrl.map(at);
+        for p in &mut self.points {
+            *p = at(*p);
+        }
+        self.size *= kx;
+    }
+
     /// Handles the user can drag: a box's corners or a line's ends.
     pub fn handles(&self) -> Vec<Pt> {
         if self.is_boxy() {
