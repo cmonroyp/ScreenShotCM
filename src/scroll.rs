@@ -21,10 +21,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SendInput, SetCapture, UnregisterHotKey, VK_ESCAPE, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, KillTimer, MA_NOACTIVATE,
-    RegisterClassExW, SW_SHOWNOACTIVATE, SetCursorPos, SetTimer, ShowWindow, WM_HOTKEY,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_TIMER, WNDCLASSEXW,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, HTCLIENT, KillTimer,
+    MA_NOACTIVATE, RegisterClassExW, SW_SHOWNOACTIVATE, SetCursorPos, SetTimer, ShowWindow,
+    WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_SETCURSOR,
+    WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -231,6 +232,7 @@ fn pane(r: Rect, through: bool) -> Result<Pane, String> {
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
             lpszClassName: if through { PANE_CLASS } else { BAR_CLASS },
+            hCursor: crate::util::arrow_cursor(),
             ..Default::default()
         };
         RegisterClassExW(&class);
@@ -641,6 +643,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     unsafe {
         match msg {
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => {
+                crate::util::button_cursor(hwnd, |p| {
+                    with(|s| button_at(s, p).is_some()).unwrap_or(false)
+                })
+            }
             WM_TIMER if wparam.0 == TICK => {
                 tick();
                 LRESULT(0)

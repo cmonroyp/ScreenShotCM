@@ -86,6 +86,7 @@ fn create(image: Image, path: Option<PathBuf>) -> Result<(), String> {
             style: CS_DBLCLKS,
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
+            hCursor: crate::util::arrow_cursor(),
             lpszClassName: CLASS,
             ..Default::default()
         };

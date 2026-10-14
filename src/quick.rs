@@ -21,10 +21,11 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, KillTimer,
-    MA_NOACTIVATE, RegisterClassExW, SM_CXDRAG, SM_CYDRAG, SW_SHOWNOACTIVATE, SetTimer, ShowWindow,
-    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_TIMER,
-    WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, HTCLIENT,
+    KillTimer, MA_NOACTIVATE, RegisterClassExW, SM_CXDRAG, SM_CYDRAG, SW_SHOWNOACTIVATE, SetTimer,
+    ShowWindow, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE,
+    WM_SETCURSOR, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 use windows_numerics::Matrix3x2;
@@ -93,6 +94,7 @@ fn create(image: Rc<Image>, path: PathBuf, near: (i32, i32)) -> Result<(), Strin
             style: CS_DBLCLKS,
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
+            hCursor: crate::util::arrow_cursor(),
             lpszClassName: CLASS,
             ..Default::default()
         };
@@ -520,6 +522,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         match msg {
             // Clicking a card never takes the focus from what the user works in.
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_SETCURSOR if (lparam.0 & 0xFFFF) as u32 == HTCLIENT => {
+                crate::util::button_cursor(hwnd, |p| {
+                    CARDS.with(|c| {
+                        c.try_borrow().is_ok_and(|cards| {
+                            cards
+                                .iter()
+                                .find(|k| k.hwnd == hwnd)
+                                .is_some_and(|k| button_at(k, p).is_some())
+                        })
+                    })
+                })
+            }
             WM_MOUSEMOVE => {
                 let (x, y) = lparam_point(lparam.0);
                 let mut start_drag = None;

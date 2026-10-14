@@ -98,6 +98,37 @@ pub fn track_leave(hwnd: windows::Win32::Foundation::HWND) {
     }
 }
 
+/// The arrow, for a window class. A class without a cursor keeps whatever
+/// the pointer showed last: the selection's cross stayed over the
+/// scrolling capture's buttons.
+pub fn arrow_cursor() -> windows::Win32::UI::WindowsAndMessaging::HCURSOR {
+    use windows::Win32::UI::WindowsAndMessaging::{IDC_ARROW, LoadCursorW};
+    unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() }
+}
+
+/// Answers `WM_SETCURSOR` in the client area of a window drawn with
+/// buttons: the hand over one, the arrow elsewhere. `on_button` is asked
+/// with the pointer in client pixels.
+pub fn button_cursor(
+    hwnd: windows::Win32::Foundation::HWND,
+    on_button: impl FnOnce((f32, f32)) -> bool,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetCursorPos, IDC_ARROW, IDC_HAND, LoadCursorW, SetCursor,
+    };
+    unsafe {
+        let mut p = POINT::default();
+        let hand = GetCursorPos(&mut p).is_ok()
+            && ScreenToClient(hwnd, &mut p).as_bool()
+            && on_button((p.x as f32, p.y as f32));
+        let id = if hand { IDC_HAND } else { IDC_ARROW };
+        SetCursor(LoadCursorW(None, id).ok());
+    }
+    windows::Win32::Foundation::LRESULT(1)
+}
+
 /// Segoe UI for a GDI window, `height` in device units as `CreateFontW`
 /// takes it (negative: the character height). The caller deletes it.
 pub fn ui_font(
