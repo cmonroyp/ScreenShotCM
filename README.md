@@ -38,7 +38,8 @@ SHA-256 para comprobar que el archivo es el original.
   resaltador, y pixelado o desenfoque para ocultar datos. Recorte, cambio de
   tamaño (en píxeles o en %, sin deformar), deshacer y zoom.
 - **Presentar** la captura sobre un fondo degradado, con margen, esquinas
-  redondeadas y sombra.
+  redondeadas y sombra. El último fondo elegido se aplica a la siguiente
+  captura; *Sin fondo* lo quita.
 - **Compartir**: cada captura va al portapapeles y aparece en una miniatura
   para copiarla, guardarla o arrastrarla a otra aplicación. Historial del
   último mes.

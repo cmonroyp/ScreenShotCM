@@ -191,7 +191,7 @@ pub fn deliver(image: Image, near: (i32, i32)) {
     }
     log::info(&format!("captured {w}x{h}"));
     if s.open_editor_after_capture {
-        crate::editor::open(image, Some(hist));
+        crate::editor::open_capture(image, Some(hist));
     } else if s.show_overlay {
         crate::quick::show(image, hist, near);
     }

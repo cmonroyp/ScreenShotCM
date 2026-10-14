@@ -374,6 +374,9 @@ struct Editor {
     drag: Drag,
     crop: Option<D2D_RECT_F>,
     background: Option<Background>,
+    /// The background the editor opened with: closing with another one
+    /// makes that the next capture's.
+    opened_with: Option<Background>,
     sidebar: bool,
     zoom: Option<f32>,
     pan: (f32, f32),
@@ -405,7 +408,18 @@ struct Editor {
 /// Opens an editor on `image`. `source` is the capture's file in the history,
 /// rewritten with the annotations when the user presses «Listo».
 pub fn open(image: Image, source: Option<PathBuf>) {
-    if let Err(e) = create(image, source) {
+    open_with(image, source, None);
+}
+
+/// A capture just taken: it opens on the background the editor last used.
+/// A file reopened from the history or a pin may already carry one, so it
+/// opens as it is (`open`).
+pub fn open_capture(image: Image, source: Option<PathBuf>) {
+    open_with(image, source, agent::settings().background);
+}
+
+fn open_with(image: Image, source: Option<PathBuf>, background: Option<Background>) {
+    if let Err(e) = create(image, source, background) {
         log::error(&format!("editor: {e}"));
         agent::notify(
             crate::i18n::tr("No se pudo abrir el editor", "Could not open the editor"),
@@ -415,7 +429,11 @@ pub fn open(image: Image, source: Option<PathBuf>) {
     }
 }
 
-fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
+fn create(
+    image: Image,
+    source: Option<PathBuf>,
+    background: Option<Background>,
+) -> Result<(), String> {
     unsafe {
         let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let class = WNDCLASSEXW {
@@ -491,7 +509,8 @@ fn create(image: Image, source: Option<PathBuf>) -> Result<(), String> {
             editing: None,
             drag: Drag::None,
             crop: None,
-            background: None,
+            background,
+            opened_with: background,
             sidebar: false,
             zoom: None,
             pan: (0.0, 0.0),
@@ -2691,7 +2710,7 @@ impl Editor {
                 self.sidebar = !self.sidebar;
                 if self.sidebar && self.background.is_none() {
                     self.checkpoint();
-                    self.background = Some(Background::default());
+                    self.background = Some(agent::settings().background.unwrap_or_default());
                 }
                 self.layout();
             }
@@ -3016,6 +3035,20 @@ fn drag_out(hwnd: HWND) {
     let path = dir.join(name).with_extension("png");
     if crate::image::save(&img, &path, ImageFormat::Png, 100).is_ok() {
         dragdrop::drag_file(hwnd, &path);
+    }
+}
+
+/// Keeps the background an editor closed with for the next capture: in
+/// the settings file, so it outlives the agent.
+fn remember_background(background: Option<Background>) {
+    let mut s = agent::settings();
+    if s.background == background {
+        return;
+    }
+    s.background = background;
+    match s.save() {
+        Ok(()) => agent::replace_settings(s),
+        Err(e) => log::error(&format!("remember the background: {e}")),
     }
 }
 
@@ -3815,7 +3848,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut RefCell<Option<Editor>>;
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                 if !ptr.is_null() {
+                    let changed = (*ptr).try_borrow().ok().and_then(|ed| {
+                        let ed = ed.as_ref()?;
+                        (ed.background != ed.opened_with).then_some(ed.background)
+                    });
                     drop(Box::from_raw(ptr));
+                    if let Some(background) = changed {
+                        remember_background(background);
+                    }
                 }
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }

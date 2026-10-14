@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::background::{Background, COLORS, Fill, GRADIENTS};
 use crate::paths;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +30,9 @@ pub struct Settings {
     pub hotkey_previous_area: String,
     pub hotkey_scrolling: String,
     pub language: Language,
+    /// The editor's last background, given to the next capture it opens;
+    /// `None` when the last one was taken off.
+    pub background: Option<Background>,
 }
 
 /// The interface language: Windows' own, or one chosen.
@@ -86,6 +90,7 @@ impl Default for Settings {
             hotkey_previous_area: "Alt+Shift+PrintScreen".into(),
             hotkey_scrolling: "Ctrl+Shift+PrintScreen".into(),
             language: Language::Auto,
+            background: None,
         }
     }
 }
@@ -112,6 +117,10 @@ impl Settings {
 
     pub fn parse(text: &str) -> Self {
         let mut s = Self::default();
+        // The background's four keys may come in any order: the fill
+        // decides whether there is one, the others shape it.
+        let mut fill: Option<Option<Fill>> = None;
+        let mut shape = Background::default();
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
@@ -155,6 +164,19 @@ impl Settings {
                 "hotkey_window" => s.hotkey_window = v.into(),
                 "hotkey_previous_area" => s.hotkey_previous_area = v.into(),
                 "hotkey_scrolling" => s.hotkey_scrolling = v.into(),
+                "background" => fill = parse_fill(v),
+                "background_padding" => set(
+                    &mut shape.padding,
+                    v.parse().ok().filter(|p| (0.0..=240.0).contains(p)),
+                ),
+                "background_radius" => set(
+                    &mut shape.radius,
+                    v.parse().ok().filter(|r| (0.0..=48.0).contains(r)),
+                ),
+                "background_shadow" => set(
+                    &mut shape.shadow,
+                    v.parse().ok().filter(|d| (0.0..=1.0).contains(d)),
+                ),
                 "language" => set(
                     &mut s.language,
                     match v.to_ascii_lowercase().as_str() {
@@ -167,11 +189,15 @@ impl Settings {
                 _ => {}
             }
         }
+        if let Some(fill) = fill {
+            s.background = fill.map(|fill| Background { fill, ..shape });
+        }
         s
     }
 
     pub fn serialise(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
+        let bg = self.background.unwrap_or_default();
         format!(
             "# ScreenShotCM settings. Edit while the agent is closed, or use \"Reload settings\".\n\
              # A hotkey is modifiers and a key joined by '+': Ctrl, Alt, Shift, Win;\n\
@@ -193,7 +219,12 @@ impl Settings {
              hotkey_window = {}\n\
              hotkey_previous_area = {}\n\
              hotkey_scrolling = {}\n\
-             language = {}\n",
+             language = {}\n\
+             # The editor's last background: none, gradient N or color N.\n\
+             background = {}\n\
+             background_padding = {}\n\
+             background_radius = {}\n\
+             background_shadow = {}\n",
             self.save_dir.display(),
             b(self.copy_after_capture),
             b(self.save_after_capture),
@@ -212,6 +243,14 @@ impl Settings {
             self.hotkey_previous_area,
             self.hotkey_scrolling,
             self.language.code(),
+            match self.background.map(|b| b.fill) {
+                None => "none".to_string(),
+                Some(Fill::Gradient(i)) => format!("gradient {i}"),
+                Some(Fill::Color(i)) => format!("color {i}"),
+            },
+            bg.padding,
+            bg.radius,
+            bg.shadow,
         )
     }
 
@@ -225,6 +264,22 @@ impl Settings {
         let tmp = path.with_extension("ini.tmp");
         fs::write(&tmp, self.serialise())?;
         fs::rename(&tmp, &path)
+    }
+}
+
+/// `none`, `gradient N` or `color N`; `None` for anything else, so a
+/// mistyped value keeps the default rather than taking the background off.
+fn parse_fill(v: &str) -> Option<Option<Fill>> {
+    let v = v.to_ascii_lowercase();
+    if v == "none" {
+        return Some(None);
+    }
+    let (kind, n) = v.split_once(' ')?;
+    let n: usize = n.trim().parse().ok()?;
+    match kind {
+        "gradient" if n < GRADIENTS.len() => Some(Some(Fill::Gradient(n))),
+        "color" if n < COLORS.len() => Some(Some(Fill::Color(n))),
+        _ => None,
     }
 }
 
@@ -262,6 +317,34 @@ mod tests {
         assert_eq!(s.jpeg_quality, d.jpeg_quality);
         assert_eq!(s.history_days, d.history_days);
         assert_eq!(s.copy_after_capture, d.copy_after_capture);
+    }
+
+    #[test]
+    fn the_background_round_trips_and_a_bad_one_is_ignored() {
+        let s = Settings {
+            background: Some(Background {
+                fill: Fill::Color(2),
+                padding: 32.0,
+                radius: 0.0,
+                shadow: 0.25,
+            }),
+            ..Settings::default()
+        };
+        assert_eq!(Settings::parse(&s.serialise()), s);
+        let none = Settings::parse(&Settings::default().serialise());
+        assert_eq!(none.background, None);
+        for bad in [
+            "background = gradient 99",
+            "background = plaid 1",
+            "background = color x",
+        ] {
+            assert_eq!(Settings::parse(bad).background, None, "{bad}");
+        }
+        let odd = Settings::parse("background = gradient 1\nbackground_padding = 9000");
+        assert_eq!(
+            odd.background.map(|b| b.padding),
+            Some(Background::default().padding)
+        );
     }
 
     #[test]

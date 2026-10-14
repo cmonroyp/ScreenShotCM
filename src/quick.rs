@@ -504,7 +504,7 @@ fn press(hwnd: HWND, btn: Btn) {
         Btn::Edit => {
             ensure_file(&image, &path);
             close(hwnd);
-            crate::editor::open((*image).clone(), Some(path));
+            crate::editor::open_capture((*image).clone(), Some(path));
         }
         Btn::Delete => {
             // The history worker may still be writing it.
