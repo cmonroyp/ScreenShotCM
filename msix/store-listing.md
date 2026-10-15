@@ -85,9 +85,8 @@ portapapeles, editor de imágenes, productividad
 
 **Novedades de esta versión**:
 
-> Recorte con proporciones, girar y voltear; volver al original; cuatro formas
-> de ocultar datos; trazos que se enderezan solos; tema claro u oscuro; el
-> historial pasa a ser opcional.
+> Imagen más nítida en el editor: reducida para caber en la ventana, el texto
+> ya no sale desigual, y al acercar se ve uniforme en lugar de escalonado.
 
 ---
 
@@ -156,6 +155,5 @@ image editor, productivity
 
 **What's new in this version**:
 
-> Fixed-ratio crop, rotate and flip; back to the original; four ways to hide
-> data; strokes that straighten themselves; light or dark theme; the history
-> is now optional.
+> A sharper picture in the editor: reduced to fit the window, text no longer
+> comes out uneven, and zoomed in it looks even instead of jagged.
