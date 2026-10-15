@@ -33,6 +33,8 @@ pub struct Settings {
     pub hotkey_previous_area: String,
     pub hotkey_scrolling: String,
     pub language: Language,
+    /// Light or dark: Windows' app mode, or one chosen.
+    pub theme: ThemeChoice,
     /// The editor's last background, given to the next capture it opens;
     /// `None` when the last one was taken off.
     pub background: Option<Background>,
@@ -52,6 +54,24 @@ impl Language {
             Language::Auto => "auto",
             Language::Spanish => "es",
             Language::English => "en",
+        }
+    }
+}
+
+/// The palette: Windows' own app mode, or one chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeChoice {
+    Auto,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    pub fn code(self) -> &'static str {
+        match self {
+            ThemeChoice::Auto => "auto",
+            ThemeChoice::Light => "light",
+            ThemeChoice::Dark => "dark",
         }
     }
 }
@@ -94,6 +114,7 @@ impl Default for Settings {
             hotkey_previous_area: "Alt+Shift+PrintScreen".into(),
             hotkey_scrolling: "Ctrl+Shift+PrintScreen".into(),
             language: Language::Auto,
+            theme: ThemeChoice::Auto,
             background: None,
         }
     }
@@ -182,6 +203,15 @@ impl Settings {
                     &mut shape.shadow,
                     v.parse().ok().filter(|d| (0.0..=1.0).contains(d)),
                 ),
+                "theme" => set(
+                    &mut s.theme,
+                    match v.to_ascii_lowercase().as_str() {
+                        "auto" => Some(ThemeChoice::Auto),
+                        "light" => Some(ThemeChoice::Light),
+                        "dark" => Some(ThemeChoice::Dark),
+                        _ => None,
+                    },
+                ),
                 "language" => set(
                     &mut s.language,
                     match v.to_ascii_lowercase().as_str() {
@@ -226,6 +256,7 @@ impl Settings {
              hotkey_previous_area = {}\n\
              hotkey_scrolling = {}\n\
              language = {}\n\
+             theme = {}\n\
              # The editor's last background: none, gradient N or color N.\n\
              background = {}\n\
              background_padding = {}\n\
@@ -250,6 +281,7 @@ impl Settings {
             self.hotkey_previous_area,
             self.hotkey_scrolling,
             self.language.code(),
+            self.theme.code(),
             match self.background.map(|b| b.fill) {
                 None => "none".to_string(),
                 Some(Fill::Gradient(i)) => format!("gradient {i}"),
@@ -310,6 +342,7 @@ mod tests {
             hotkey_scrolling: "Ctrl+Alt+S".into(),
             save_dir: PathBuf::from(r"D:\Capturas con espacio"),
             language: Language::English,
+            theme: ThemeChoice::Dark,
             keep_history: true,
             ..Settings::default()
         };

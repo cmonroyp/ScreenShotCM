@@ -35,8 +35,13 @@ SHA-256 para comprobar que el archivo es el original.
   muestra cómo crece. Los encabezados fijos aparecen una sola vez.
 - **Anotar** en el editor, que se abre al capturar: flechas rectas o curvas,
   rectángulos, elipses, líneas, texto, contadores numerados, foco, lápiz,
-  resaltador, y pixelado o desenfoque para ocultar datos. Recorte, cambio de
-  tamaño (en píxeles o en %, sin deformar), deshacer y zoom.
+  resaltador (el lápiz y el resaltador se enderezan solos cuando el trazo va
+  casi recto). Para ocultar datos: pixelar, desenfocar (seguro o suave) o
+  tapar en negro.
+- **Recortar y transformar**: recorte libre o con proporción (cuadrado, 4:3,
+  3:2, 16:9, 9:16 u original) que se ajusta a los bordes de la imagen; girar y
+  voltear; cambio de tamaño en píxeles o en %, sin deformar; *Volver al
+  original* deshace todo eso de una vez. Deshacer sin límite y zoom.
 - **Presentar** la captura sobre un fondo degradado, con margen, esquinas
   redondeadas y sombra. El último fondo elegido se aplica a la siguiente
   captura; *Sin fondo* lo quita.
@@ -46,7 +51,8 @@ SHA-256 para comprobar que el archivo es el original.
   (*Ajustes → Historial*).
 - **Fijar** una captura sobre todas las ventanas como referencia.
 - **Ligera**: menos de 2 MB de memoria en reposo y un único ejecutable.
-- En **español e inglés**, según el idioma de Windows o el que elijas.
+- En **español e inglés**, en **modo claro u oscuro**: los de Windows o los
+  que elijas en *Ajustes*.
 
 ## Atajos
 
@@ -68,8 +74,10 @@ deshacen y rehacen, Ctrl+C copia, Ctrl+S guarda. Ctrl+rueda, Ctrl + y Ctrl −
 acercan y alejan; Ctrl+1 muestra el tamaño real y Ctrl+0 ajusta a la ventana.
 Una imagen más grande que la ventana se arrastra con la mano: con la flecha
 sobre una zona vacía, manteniendo Espacio con cualquier herramienta, o con el
-botón central del ratón; la rueda la recorre también. El tamaño de la imagen, abajo, abre el menú para cambiarlo: escribe el ancho
-y pulsa Intro, o elige un porcentaje.
+botón central del ratón; la rueda la recorre también. El tamaño de la imagen,
+abajo, abre el menú para cambiarlo: escribe el ancho y pulsa Intro, o elige un
+porcentaje. Un texto se mueve arrastrándolo, o por su borde punteado mientras
+lo escribes; un clic en ese borde (o Esc) lo selecciona y Supr lo borra entero.
 
 ## Automatizar
 

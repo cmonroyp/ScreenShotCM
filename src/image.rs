@@ -33,6 +33,11 @@ pub fn within_bounds(w: u32, h: u32) -> bool {
     w > 0 && h > 0 && w <= MAX_SIDE && h <= MAX_SIDE && w as u64 * h as u64 <= MAX_PIXELS
 }
 
+/// The brightness of a BGR(A) pixel, 0 to 255, weighted as the eye does.
+pub fn luma(px: &[u8]) -> u32 {
+    (px[2] as u32 * 77 + px[1] as u32 * 150 + px[0] as u32 * 29) >> 8
+}
+
 #[derive(Clone)]
 pub struct Image {
     pub width: u32,
@@ -56,6 +61,104 @@ impl Image {
         Image {
             width: r.w as u32,
             height: r.h as u32,
+            pixels,
+        }
+    }
+
+    /// A copy turned a quarter: clockwise, or counter-clockwise. The pixel
+    /// at (x, y) goes to (h-1-y, x) clockwise and to (y, w-1-x) the other
+    /// way.
+    pub fn rotated(&self, clockwise: bool) -> Image {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let mut pixels = vec![0u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let (nx, ny) = if clockwise {
+                    (h - 1 - y, x)
+                } else {
+                    (y, w - 1 - x)
+                };
+                let src = (y * w + x) * 4;
+                let dst = (ny * h + nx) * 4;
+                pixels[dst..dst + 4].copy_from_slice(&self.pixels[src..src + 4]);
+            }
+        }
+        Image {
+            width: self.height,
+            height: self.width,
+            pixels,
+        }
+    }
+
+    /// The sharpest edge near `at`, for a crop's side to snap to: within
+    /// `reach` pixels, the column (`vertical`) or row where the picture
+    /// changes most between neighbours over `span` — the stretch of the
+    /// other axis the side covers. `None` where nothing there is a clear
+    /// edge (a mean step under 24 of 255), so a side over a flat area or a
+    /// photo moves freely. The picture's own border always counts.
+    pub fn edge_near(&self, vertical: bool, at: f32, span: (f32, f32), reach: f32) -> Option<f32> {
+        let (len, across) = if vertical {
+            (self.width, self.height)
+        } else {
+            (self.height, self.width)
+        };
+        if at.abs() <= reach {
+            return Some(0.0);
+        }
+        if (len as f32 - at).abs() <= reach {
+            return Some(len as f32);
+        }
+        let lo = (at - reach).floor().max(1.0) as u32;
+        let hi = (at + reach).ceil().min(len as f32 - 1.0) as u32;
+        let s0 = span.0.min(span.1).max(0.0) as u32;
+        let s1 = (span.0.max(span.1) as u32).min(across);
+        if hi < lo || s1 <= s0 {
+            return None;
+        }
+        // Up to 400 samples along the side: a tall capture costs no more.
+        let step = ((s1 - s0) / 400).max(1);
+        let px = |i: u32, j: u32| {
+            let (x, y) = if vertical { (i, j) } else { (j, i) };
+            let o = (y as usize * self.width as usize + x as usize) * 4;
+            luma(&self.pixels[o..o + 3]) as i32
+        };
+        let (mut best, mut best_at) = (0u64, 0u32);
+        for i in lo..=hi {
+            let (mut sum, mut n) = (0u64, 0u64);
+            let mut j = s0;
+            while j < s1 {
+                sum += (px(i, j) - px(i - 1, j)).unsigned_abs() as u64;
+                n += 1;
+                j += step;
+            }
+            let strength = sum / n.max(1);
+            if strength > best {
+                (best, best_at) = (strength, i);
+            }
+        }
+        (best >= 24).then_some(best_at as f32)
+    }
+
+    /// A mirror copy: left for right, or top for bottom.
+    pub fn flipped(&self, horizontal: bool) -> Image {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let stride = w * 4;
+        let mut pixels = vec![0u8; w * h * 4];
+        for y in 0..h {
+            let src = &self.pixels[y * stride..(y + 1) * stride];
+            if horizontal {
+                let row = &mut pixels[y * stride..(y + 1) * stride];
+                for x in 0..w {
+                    row[x * 4..x * 4 + 4].copy_from_slice(&src[(w - 1 - x) * 4..(w - x) * 4]);
+                }
+            } else {
+                let ny = h - 1 - y;
+                pixels[ny * stride..(ny + 1) * stride].copy_from_slice(src);
+            }
+        }
+        Image {
+            width: self.width,
+            height: self.height,
             pixels,
         }
     }
@@ -357,6 +460,54 @@ pub mod tests {
         assert_eq!(&c.pixels[..4], &[3, 2, 3 ^ 2, 255]);
         let last = c.pixels.len() - 4;
         assert_eq!(&c.pixels[last..], &[6, 6, 0, 255]);
+    }
+
+    #[test]
+    fn a_crop_side_finds_a_sharp_edge_and_ignores_a_flat_area() {
+        // A dark panel from column 50 and row 40 on a light page.
+        let (w, h) = (120u32, 90u32);
+        let mut pixels = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let v = if x >= 50 && y >= 40 { 30 } else { 230 };
+                pixels.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let img = Image {
+            width: w,
+            height: h,
+            pixels,
+        };
+        assert_eq!(img.edge_near(true, 46.0, (40.0, 90.0), 6.0), Some(50.0));
+        assert_eq!(img.edge_near(false, 43.5, (50.0, 120.0), 6.0), Some(40.0));
+        // Above the panel the page is flat: nothing to hold the side.
+        assert_eq!(img.edge_near(true, 46.0, (0.0, 30.0), 6.0), None);
+        // The border itself always counts.
+        assert_eq!(img.edge_near(true, 3.0, (0.0, 90.0), 6.0), Some(0.0));
+        assert_eq!(img.edge_near(false, 87.0, (0.0, 120.0), 6.0), Some(90.0));
+    }
+
+    #[test]
+    fn turning_and_mirroring_move_each_pixel_where_it_belongs() {
+        // gradient(w, h) puts (x, y) in a pixel's first two bytes.
+        let img = gradient(5, 3);
+        let at = |i: &Image, x: u32, y: u32| {
+            let o = ((y * i.width + x) * 4) as usize;
+            (i.pixels[o], i.pixels[o + 1])
+        };
+        let cw = img.rotated(true);
+        assert_eq!((cw.width, cw.height), (3, 5));
+        // (x, y) → (h-1-y, x): the top-left corner goes top-right.
+        assert_eq!(at(&cw, 2, 0), (0, 0));
+        assert_eq!(at(&cw, 0, 4), (4, 2));
+        let ccw = img.rotated(false);
+        assert_eq!(at(&ccw, 0, 4), (0, 0));
+        assert_eq!(ccw.rotated(true).pixels, img.pixels, "a turn and back");
+        let h = img.flipped(true);
+        assert_eq!(at(&h, 4, 1), (0, 1));
+        let v = img.flipped(false);
+        assert_eq!(at(&v, 3, 2), (3, 0));
+        assert_eq!(v.flipped(false).pixels, img.pixels, "twice is nothing");
     }
 
     #[test]

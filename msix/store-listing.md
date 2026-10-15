@@ -46,20 +46,24 @@ son los de Partner Center.
 > • El editor se abre al capturar: flechas rectas o curvas, rectángulos,
 >   elipses, líneas, texto editable, contadores numerados, foco, lápiz y
 >   resaltador.
-> • Pixelado o desenfoque para ocultar datos sensibles.
-> • Recorte, deshacer y rehacer, zoom.
+> • El lápiz y el resaltador se enderezan solos cuando el trazo va casi recto.
+> • Para ocultar datos sensibles: pixelar, desenfocar (seguro o suave) o
+>   tapar en negro.
+> • Recorte libre o con proporción (cuadrado, 4:3, 16:9…) que se ajusta a los
+>   bordes; girar, voltear y cambiar el tamaño; volver al original de un clic.
+> • Deshacer y rehacer, zoom.
 > • Fondos con degradados, margen, esquinas redondeadas y sombra.
 >
 > COMPARTIR
 > • Cada captura va al portapapeles y aparece en una miniatura: cópiala,
 >   guárdala o arrástrala directamente a otra aplicación.
-> • Historial del último mes.
+> • Historial opcional: nada se guarda en el disco si no lo pides.
 > • Fija una captura sobre todas las ventanas como referencia.
 >
 > LIGERO Y PRIVADO
 > • Menos de 2 MB de memoria en reposo y un único ejecutable.
 > • No se conecta a internet: sin cuentas, sin telemetría y sin publicidad.
-> • Atajos configurables. En español e inglés.
+> • Atajos configurables. En español e inglés, en modo claro u oscuro.
 
 **Funciones destacadas** (hasta 20, de 200 caracteres):
 
@@ -70,6 +74,9 @@ son los de Partner Center.
 4. Fondos con degradado, margen, redondeo y sombra
 5. Miniatura con copiar, guardar y arrastrar a cualquier aplicación
 6. Capturas fijadas sobre todas las ventanas
+6. Recorte con proporciones, girar, voltear y cambiar el tamaño
+6. Pixelar, desenfocar o tapar en negro para ocultar datos
+6. Modo claro y oscuro
 7. Atajos de teclado configurables
 8. Menos de 2 MB de memoria, sin conexión a internet
 
@@ -78,8 +85,9 @@ portapapeles, editor de imágenes, productividad
 
 **Novedades de esta versión**:
 
-> Captura con desplazamiento: páginas, chats y documentos largos en una sola
-> imagen, desplazándote tú o de forma automática.
+> Recorte con proporciones, girar y voltear; volver al original; cuatro formas
+> de ocultar datos; trazos que se enderezan solos; tema claro u oscuro; el
+> historial pasa a ser opcional.
 
 ---
 
@@ -109,20 +117,24 @@ portapapeles, editor de imágenes, productividad
 > • The editor opens as you capture: straight or curved arrows, rectangles,
 >   ellipses, lines, editable text, numbered counters, spotlight, pen and
 >   highlighter.
-> • Pixelate or blur to hide sensitive data.
-> • Crop, undo and redo, zoom.
+> • The pen and highlighter straighten themselves when a stroke is nearly
+>   straight.
+> • To hide sensitive data: pixelate, blur (secure or smooth) or black out.
+> • Freeform or fixed-ratio crop (square, 4:3, 16:9…) that snaps to edges;
+>   rotate, flip and resize; back to the original in one click.
+> • Undo and redo, zoom.
 > • Backgrounds with gradients, padding, rounded corners and a shadow.
 >
 > SHARE
 > • Every capture goes to the clipboard and shows up as a thumbnail: copy it,
 >   save it, or drag it straight into another app.
-> • Last month's history.
+> • Optional history: nothing is written to disk unless you ask.
 > • Pin a capture above every window as a reference.
 >
 > LIGHT AND PRIVATE
 > • Under 2 MB of memory at rest and a single executable.
 > • Never connects to the internet: no accounts, no telemetry, no ads.
-> • Configurable shortcuts. In English and Spanish.
+> • Configurable shortcuts. In English and Spanish, light or dark.
 
 **Product features**:
 
@@ -133,6 +145,9 @@ portapapeles, editor de imágenes, productividad
 4. Backgrounds with gradient, padding, rounding and shadow
 5. Thumbnail with copy, save and drag into any app
 6. Captures pinned above every window
+6. Fixed-ratio crop, rotate, flip and resize
+6. Pixelate, blur or black out to hide data
+6. Light and dark mode
 7. Configurable keyboard shortcuts
 8. Under 2 MB of memory, no internet connection
 
@@ -141,5 +156,6 @@ image editor, productivity
 
 **What's new in this version**:
 
-> Scrolling capture: long pages, chats and documents in a single image,
-> scrolled by hand or automatically.
+> Fixed-ratio crop, rotate and flip; back to the original; four ways to hide
+> data; strokes that straighten themselves; light or dark theme; the history
+> is now optional.

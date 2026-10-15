@@ -244,11 +244,22 @@ fn render(card: &mut Card, at: (i32, i32)) {
         .as_ref()
         .is_none_or(|s| s.width != sw || s.height != sh)
     {
-        card.surface = gfx::d2d().and_then(|f| Surface::new(f, sw, sh)).ok();
+        card.surface = match gfx::d2d().and_then(|f| Surface::new(f, sw, sh)) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                log::error(&format!("quick card surface: {e}"));
+                None
+            }
+        };
     }
     let Some(surface) = &card.surface else { return };
-    let _ = surface.draw(|t, brush| paint(card, surface, t, brush));
-    let _ = surface.present(card.hwnd, at, 1.0);
+    // A card that fails to draw is a window nobody can see: say so.
+    if let Err(e) = surface
+        .draw(|t, brush| paint(card, surface, t, brush))
+        .and_then(|()| surface.present(card.hwnd, at, 1.0))
+    {
+        log::error(&format!("quick card: {e}"));
+    }
 }
 
 fn rerender(hwnd: HWND) {

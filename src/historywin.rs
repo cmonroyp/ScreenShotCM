@@ -216,6 +216,7 @@ fn create() -> Result<(), String> {
             None,
         )
         .map_err(|e| e.to_string())?;
+        crate::theme::frame_window(hwnd);
         let s = GetDpiForWindow(hwnd) as f32 / 96.0;
         let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowPos(
             hwnd,

@@ -94,6 +94,7 @@ pub fn run(first: Request) -> i32 {
 
         let settings = Settings::load();
         crate::i18n::apply(settings.language);
+        crate::theme::apply(settings.theme);
         let first_run = !crate::settings::file().exists();
         // First run: write the file out, so the user has something to edit.
         if first_run && let Err(e) = settings.save() {
@@ -134,6 +135,7 @@ pub fn run(first: Request) -> i32 {
 /// Settings saved by the settings window take effect at once.
 pub fn replace_settings(settings: Settings) {
     crate::i18n::apply(settings.language);
+    crate::theme::apply(settings.theme);
     with(|a| a.settings = settings);
 }
 

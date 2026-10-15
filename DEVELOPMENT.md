@@ -93,6 +93,10 @@ un archivo guardado puede volver a abrirse (20 000 px y 100 megapíxeles).
 - Con `SCM_SHOW_IN_CAPTURE=1`, una compilación de depuración deja que sus
   propias ventanas (marcos, barras, vistas previas) salgan en las capturas,
   para poder fotografiarlas en las pruebas. La versión publicada lo ignora.
+- Con `SCM_THEME=light` o `SCM_THEME=dark`, una compilación de depuración usa
+  esa paleta sin tocar los ajustes ni Windows, para fotografiar las dos.
+- `cargo test icon_sheet -- --ignored` dibuja todos los iconos en claro y
+  oscuro, a tamaño real y ampliados, en `SCM_ICON_SHEET` (o en `%TEMP%`).
 
 ## Idiomas
 

@@ -52,6 +52,11 @@ pub enum Obscure {
     Pixelate,
     /// A soft blur.
     Blur,
+    /// Blocks first, then the blur: as unrecoverable as `Pixelate`, with
+    /// the soft look of `Blur` — a plain blur can be partly undone.
+    SecureBlur,
+    /// A solid black box.
+    BlackOut,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -314,6 +319,19 @@ impl Shape {
         self.size *= kx;
     }
 
+    /// Moves every point through `f` and multiplies the stroke, font or
+    /// counter size by `k`: for a turn or a mirror of the picture (a box's
+    /// two corners may swap, which `rect` sorts out).
+    pub fn map(&mut self, f: impl Fn(Pt) -> Pt, k: f32) {
+        self.a = f(self.a);
+        self.b = f(self.b);
+        self.ctrl = self.ctrl.map(&f);
+        for p in &mut self.points {
+            *p = f(*p);
+        }
+        self.size *= k;
+    }
+
     /// Handles the user can drag: a box's corners or a line's ends.
     pub fn handles(&self) -> Vec<Pt> {
         if self.is_boxy() {
@@ -384,6 +402,46 @@ fn dist(a: Pt, b: Pt) -> f32 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
 }
 
+/// The ends of a pen or highlighter stroke meant to be straight, or
+/// `None` for one that was not. A hand underlining a line of text wavers;
+/// the mark is kept straight when every point stays within half the
+/// stroke's `width` — or 5 % of its length, for a long one — of the line
+/// from its first point to its last, and the path did not double back
+/// (no more than 20 % longer than that line). A curve, a circle or a mark
+/// shorter than its own width stays as drawn.
+pub fn straight_stroke(points: &[Pt], width: f32) -> Option<[Pt; 2]> {
+    let (&first, &last) = (points.first()?, points.last()?);
+    let length = dist(first, last);
+    if length < width {
+        return None;
+    }
+    let travelled: f32 = points.windows(2).map(|s| dist(s[0], s[1])).sum();
+    if travelled > length * 1.2 {
+        return None;
+    }
+    let allowed = (width * 0.5).max(length * 0.05);
+    if !points
+        .iter()
+        .all(|&p| segment_distance(p, first, last) <= allowed)
+    {
+        return None;
+    }
+    // Within 4° of level or upright it is made exactly so, through the
+    // stroke's mean: ends a few pixels apart in height read as crooked.
+    let n = points.len() as f32;
+    let (dx, dy) = ((last.0 - first.0).abs(), (last.1 - first.1).abs());
+    let tilt = 4f32.to_radians().tan();
+    Some(if dy <= dx * tilt {
+        let y = points.iter().map(|p| p.1).sum::<f32>() / n;
+        [(first.0, y), (last.0, y)]
+    } else if dx <= dy * tilt {
+        let x = points.iter().map(|p| p.0).sum::<f32>() / n;
+        [(x, first.1), (x, last.1)]
+    } else {
+        [first, last]
+    })
+}
+
 pub fn segment_distance(p: Pt, a: Pt, b: Pt) -> f32 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = dx * dx + dy * dy;
@@ -416,17 +474,32 @@ pub fn obscured(base: &Image, shapes: &[Shape]) -> Image {
                 y1,
                 (s.size * 2.0 + 6.0).max(4.0) as u32,
             ),
-            Obscure::Blur => blur(
-                &mut img,
-                x0,
-                y0,
-                x1,
-                y1,
-                (s.size * 1.5 + 4.0).max(3.0) as u32,
-            ),
+            // Light: the shapes beneath still show, softly — to play
+            // something down, not to hide it.
+            Obscure::Blur => blur(&mut img, x0, y0, x1, y1, (s.size + 3.0).max(3.0) as u32),
+            // Heavy: big blocks, then a wide blur over them, so what is left
+            // is patches of colour with no trace of a letter. It once used
+            // the light blur's strength and the two looked the same.
+            Obscure::SecureBlur => {
+                let block = (s.size * 5.0 + 10.0).max(12.0) as u32;
+                let radius = (s.size * 3.0 + 8.0).max(8.0) as u32;
+                pixelate(&mut img, x0, y0, x1, y1, block);
+                blur(&mut img, x0, y0, x1, y1, radius);
+            }
+            Obscure::BlackOut => black_out(&mut img, x0, y0, x1, y1),
         }
     }
     img
+}
+
+/// Paints `x0..x1` × `y0..y1` opaque black.
+pub fn black_out(img: &mut Image, x0: u32, y0: u32, x1: u32, y1: u32) {
+    let stride = img.stride();
+    for y in y0..y1 {
+        let row = y as usize * stride;
+        let (px, _) = img.pixels[row + x0 as usize * 4..row + x1 as usize * 4].as_chunks_mut::<4>();
+        px.fill([0, 0, 0, 255]);
+    }
 }
 
 /// Blocks of `block` pixels, each the mean of what it covers.
@@ -1064,6 +1137,141 @@ pub mod textedit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_secure_blur_leaves_far_less_than_the_smooth_one() {
+        // Word-sized marks: dark squares of 16 px every 32 on white.
+        let (w, h) = (160u32, 80u32);
+        let mut pixels = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let v = if (x / 16 + y / 16) % 2 == 0 { 20 } else { 235 };
+                pixels.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let img = Image {
+            width: w,
+            height: h,
+            pixels,
+        };
+        let mut hide = Shape::new(Kind::Pixelate, (0.0, 0.0), (0, 0, 0), 4.0);
+        hide.b = (w as f32, h as f32);
+        // How much the brightness still varies inside: what is left to read.
+        let mut spread = |o: Obscure| {
+            hide.obscure = o;
+            let out = obscured(&img, std::slice::from_ref(&hide));
+            let l: Vec<f64> = out
+                .pixels
+                .chunks(4)
+                .map(|p| crate::image::luma(p) as f64)
+                .collect();
+            let mean = l.iter().sum::<f64>() / l.len() as f64;
+            (l.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / l.len() as f64).sqrt()
+        };
+        let (smooth, secure) = (spread(Obscure::Blur), spread(Obscure::SecureBlur));
+        assert!(
+            smooth > 15.0,
+            "the smooth blur still shows the shapes: {smooth}"
+        );
+        assert!(
+            secure < smooth * 0.4,
+            "secure {secure} against smooth {smooth}"
+        );
+    }
+
+    #[test]
+    fn black_out_and_secure_blur_stay_inside_their_box() {
+        let img = checker(40, 30);
+        let mut hide = Shape::new(Kind::Pixelate, (10.0, 8.0), (0, 0, 0), 4.0);
+        hide.b = (30.0, 22.0);
+        for (mode, check) in [(Obscure::BlackOut, true), (Obscure::SecureBlur, false)] {
+            hide.obscure = mode;
+            let out = obscured(&img, std::slice::from_ref(&hide));
+            for y in 0..30u32 {
+                for x in 0..40u32 {
+                    let i = (y * 40 + x) as usize * 4;
+                    let inside = (10..30).contains(&x) && (8..22).contains(&y);
+                    if !inside {
+                        assert_eq!(
+                            out.pixels[i..i + 4],
+                            img.pixels[i..i + 4],
+                            "{mode:?} at {x},{y}"
+                        );
+                    } else if check {
+                        assert_eq!(out.pixels[i..i + 4], [0, 0, 0, 255]);
+                    }
+                }
+            }
+            if !check {
+                assert_ne!(out.pixels, img.pixels, "{mode:?} changed nothing");
+            }
+        }
+    }
+
+    #[test]
+    fn a_pen_line_drawn_by_hand_comes_out_straight_and_a_letter_does_not() {
+        // The pen at 4 px is judged at 12 (see the editor).
+        let width = 12.0;
+        // A diagonal of about 280 px, the hand off by up to 6 px.
+        let diag: Vec<Pt> = (0..=40)
+            .map(|i| {
+                let t = i as f32 / 40.0;
+                (100.0 + 200.0 * t + 6.0 * (t * 9.0).sin(), 100.0 + 200.0 * t)
+            })
+            .collect();
+        assert!(straight_stroke(&diag, width).is_some(), "diagonal");
+        // A «C»: three quarters of a circle of radius 40.
+        let c: Vec<Pt> = (0..=30)
+            .map(|i| {
+                let a = 0.8 + i as f32 / 30.0 * 4.7;
+                (200.0 + 40.0 * a.cos(), 200.0 + 40.0 * a.sin())
+            })
+            .collect();
+        assert_eq!(straight_stroke(&c, width), None, "a letter stays drawn");
+    }
+
+    #[test]
+    fn a_wavering_underline_is_kept_straight_and_a_curve_is_not() {
+        let width = 38.0;
+        // 500 px along a line of text, the hand wavering ±12 px.
+        let wavy: Vec<Pt> = (0..=50)
+            .map(|i| {
+                (
+                    100.0 + i as f32 * 10.0,
+                    300.0 + 12.0 * (i as f32 * 0.7).sin(),
+                )
+            })
+            .collect();
+        let [a, b] = straight_stroke(&wavy, width).expect("kept straight");
+        assert_eq!((a.0, b.0), (100.0, 600.0));
+        assert_eq!(a.1, b.1, "made level");
+        assert!((a.1 - 300.0).abs() < 3.0, "through the stroke's middle");
+        // A slanted one stays at its slant.
+        let slant: Vec<Pt> = (0..=20)
+            .map(|i| (i as f32 * 20.0, i as f32 * 10.0))
+            .collect();
+        assert_eq!(straight_stroke(&slant, width), Some([slant[0], slant[20]]));
+        // A deliberate arch, 120 px high over the same 500 px.
+        let arch: Vec<Pt> = (0..=50)
+            .map(|i| {
+                let t = i as f32 / 50.0;
+                (100.0 + t * 500.0, 300.0 - 480.0 * t * (1.0 - t))
+            })
+            .collect();
+        assert_eq!(straight_stroke(&arch, width), None);
+        // Back and forth over one spot, and a dab shorter than the stroke.
+        let scrub = [
+            (100.0, 300.0),
+            (400.0, 300.0),
+            (150.0, 300.0),
+            (420.0, 300.0),
+        ];
+        assert_eq!(straight_stroke(&scrub, width), None);
+        assert_eq!(
+            straight_stroke(&[(100.0, 300.0), (120.0, 302.0)], width),
+            None
+        );
+    }
 
     fn checker(w: u32, h: u32) -> Image {
         let mut pixels = Vec::new();

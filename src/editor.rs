@@ -132,8 +132,8 @@ const TOOLS: [(Tool, Icon, &str, &str); 12] = [
     (
         Tool::Draw(Kind::Pixelate),
         Icon::Pixelate,
-        "Pixelar o desenfocar (B)",
-        "Pixelate or blur (B)",
+        "Ocultar datos: pixelar, desenfocar o tapar (B)",
+        "Hide data: pixelate, blur or black out (B)",
     ),
     (
         Tool::Draw(Kind::Spotlight),
@@ -168,6 +168,13 @@ fn button_name(act: Act) -> Option<&'static str> {
         Act::Copy => tr("Copiar (Ctrl+C)", "Copy (Ctrl+C)"),
         Act::Save => tr("Guardar (Ctrl+S)", "Save (Ctrl+S)"),
         Act::Resize => tr("Tamaño de la imagen", "Image size"),
+        Act::SaveAs => tr("Guardar como…", "Save as…"),
+        Act::CropApply => tr("Recortar (Intro)", "Crop (Enter)"),
+        Act::Turn(Turn::CounterClockwise) => tr("Girar a la izquierda", "Rotate left"),
+        Act::Turn(Turn::Clockwise) => tr("Girar a la derecha", "Rotate right"),
+        Act::Turn(Turn::MirrorH) => tr("Voltear horizontal", "Flip horizontal"),
+        Act::Turn(Turn::MirrorV) => tr("Voltear vertical", "Flip vertical"),
+        Act::CropSnap => tr("Ajustar a los bordes", "Snap to edges"),
         Act::Drag => tr(
             "Arrastra la imagen a otra aplicación",
             "Drag the picture into another app",
@@ -187,6 +194,101 @@ const MIN_ZOOM: f32 = 0.05;
 const MAX_ZOOM: f32 = 8.0;
 /// Ctrl + / Ctrl − and the menu's steps: a quarter, so four steps double.
 const ZOOM_STEP: f32 = 1.25;
+/// A crop's proportion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Aspect {
+    Free,
+    /// The picture's own.
+    Original,
+    Ratio(u16, u16),
+}
+
+const ASPECTS: [Aspect; 7] = [
+    Aspect::Free,
+    Aspect::Original,
+    Aspect::Ratio(1, 1),
+    Aspect::Ratio(4, 3),
+    Aspect::Ratio(3, 2),
+    Aspect::Ratio(16, 9),
+    Aspect::Ratio(9, 16),
+];
+
+impl Aspect {
+    /// Width over height, for a `w`×`h` picture; `None` when free.
+    fn ratio(self, w: f32, h: f32) -> Option<f32> {
+        match self {
+            Aspect::Free => None,
+            Aspect::Original => Some(w / h.max(1.0)),
+            Aspect::Ratio(a, b) => Some(a as f32 / b as f32),
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Aspect::Free => crate::i18n::tr("Libre", "Freeform").into(),
+            Aspect::Original => crate::i18n::tr("Original", "Original").into(),
+            Aspect::Ratio(1, 1) => crate::i18n::tr("Cuadrado", "Square").into(),
+            Aspect::Ratio(a, b) => format!("{a}:{b}"),
+        }
+    }
+}
+
+/// The largest rectangle of `ratio` inside `c` and the `w`×`h` picture,
+/// round `c`'s centre: what a crop becomes when a proportion is picked.
+fn aspect_fit(c: D2D_RECT_F, ratio: f32, w: f32, h: f32) -> D2D_RECT_F {
+    let (cw, ch) = ((c.right - c.left).max(1.0), (c.bottom - c.top).max(1.0));
+    let mut nw = cw.min(ch * ratio);
+    let mut nh = nw / ratio;
+    if nw > w {
+        (nw, nh) = (w, w / ratio);
+    }
+    if nh > h {
+        (nw, nh) = (h * ratio, h);
+    }
+    let cx = ((c.left + c.right) / 2.0).clamp(nw / 2.0, w - nw / 2.0);
+    let cy = ((c.top + c.bottom) / 2.0).clamp(nh / 2.0, h - nh / 2.0);
+    D2D_RECT_F {
+        left: cx - nw / 2.0,
+        top: cy - nh / 2.0,
+        right: cx + nw / 2.0,
+        bottom: cy + nh / 2.0,
+    }
+}
+
+/// A crop dragged from `fixed` to `to` holding `ratio`: the side that
+/// moved most leads, and the whole stays inside the `w`×`h` picture.
+fn aspect_corner(fixed: Pt, to: Pt, ratio: f32, w: f32, h: f32) -> D2D_RECT_F {
+    let (dx, dy) = (to.0 - fixed.0, to.1 - fixed.1);
+    let (mut aw, mut ah) = (dx.abs().max(1.0), dy.abs().max(1.0));
+    if aw >= ah * ratio {
+        ah = aw / ratio;
+    } else {
+        aw = ah * ratio;
+    }
+    let room_w = if dx >= 0.0 { w - fixed.0 } else { fixed.0 };
+    let room_h = if dy >= 0.0 { h - fixed.1 } else { fixed.1 };
+    let k = (room_w / aw).min(room_h / ah).clamp(0.0, 1.0);
+    let (aw, ah) = (aw * k, ah * k);
+    let x = fixed.0 + aw * dx.signum();
+    let y = fixed.1 + ah * dy.signum();
+    D2D_RECT_F {
+        left: fixed.0.min(x),
+        top: fixed.1.min(y),
+        right: fixed.0.max(x),
+        bottom: fixed.1.max(y),
+    }
+}
+
+/// The sign of a way of hiding, in its menu and on its dropdown.
+fn obscure_icon(o: Obscure) -> Icon {
+    match o {
+        Obscure::Pixelate => Icon::Pixelate,
+        Obscure::SecureBlur => Icon::DropLock,
+        Obscure::Blur => Icon::Drop,
+        Obscure::BlackOut => Icon::FilledRect,
+    }
+}
+
 /// The resize menu's ready-made sizes, as fractions of the current width.
 const RESIZES: [f32; 5] = [0.25, 0.5, 0.75, 1.5, 2.0];
 
@@ -240,6 +342,17 @@ enum Act {
     ResizeTo(u32),
     /// Resizes to the width typed in the menu.
     ResizeTyped,
+    /// Every crop and resize undone at once: the picture as it opened.
+    RevertOriginal,
+    /// Turns or mirrors the whole picture.
+    Turn(Turn),
+    /// The crop's proportion: opens its menu.
+    CropAspect,
+    PickAspect(Aspect),
+    /// Whether the crop's sides hold to the picture's edges.
+    CropSnap,
+    /// Crops to what is set out (as Enter does).
+    CropApply,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -280,6 +393,9 @@ enum Face {
     Swatch,
     /// A label with a chevron.
     Dropdown(String),
+    /// An icon with a chevron: a choice shown by its sign, where a word
+    /// would not fit.
+    IconDropdown(Icon),
     Primary(String),
     Secondary(String),
     Grip(String),
@@ -300,6 +416,7 @@ enum Popover {
     Style,
     Zoom,
     Resize,
+    Aspect,
 }
 
 #[derive(Clone)]
@@ -307,6 +424,116 @@ struct Snapshot {
     base: Rc<Image>,
     shapes: Vec<Shape>,
     background: Option<Background>,
+    to_original: ToOriginal,
+}
+
+/// How a point of the picture as it now is maps to the picture it opened
+/// as — an affine map, `original = (a·x + b·y + tx, c·x + d·y + ty)`. Each
+/// crop, resize, turn and mirror composes the way back onto it, so
+/// «Volver al original» can put the marks back where they were drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ToOriginal {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    tx: f32,
+    ty: f32,
+}
+
+impl ToOriginal {
+    const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        tx: 0.0,
+        ty: 0.0,
+    };
+
+    fn apply(self, p: Pt) -> Pt {
+        (
+            self.a * p.0 + self.b * p.1 + self.tx,
+            self.c * p.0 + self.d * p.1 + self.ty,
+        )
+    }
+
+    /// `self` after an edit whose way back is `back` (new point → the
+    /// point it was before the edit).
+    fn then(self, back: ToOriginal) -> Self {
+        let t = self.apply((back.tx, back.ty));
+        Self {
+            a: self.a * back.a + self.b * back.c,
+            b: self.a * back.b + self.b * back.d,
+            c: self.c * back.a + self.d * back.c,
+            d: self.c * back.b + self.d * back.d,
+            tx: t.0,
+            ty: t.1,
+        }
+    }
+
+    /// After a crop whose top-left corner was at `(x, y)`.
+    fn cropped(self, x: f32, y: f32) -> Self {
+        self.then(Self {
+            tx: x,
+            ty: y,
+            ..Self::IDENTITY
+        })
+    }
+
+    /// After a resize by `kx`, `ky`.
+    fn resized(self, kx: f32, ky: f32) -> Self {
+        self.then(Self {
+            a: 1.0 / kx,
+            d: 1.0 / ky,
+            ..Self::IDENTITY
+        })
+    }
+
+    /// After `turn` was applied to a picture `w`×`h` (its size before).
+    fn turned(self, turn: Turn, w: f32, h: f32) -> Self {
+        self.then(turn.back(w, h))
+    }
+
+    /// How much longer a length is on the original: what a stroke's width
+    /// is multiplied by on the way back.
+    fn scale(self) -> f32 {
+        (self.a * self.d - self.b * self.c).abs().sqrt()
+    }
+}
+
+/// A quarter turn or a mirror of the whole picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Turn {
+    Clockwise,
+    CounterClockwise,
+    MirrorH,
+    MirrorV,
+}
+
+impl Turn {
+    /// Where a point of a `w`×`h` picture lands after the turn.
+    fn forward(self, w: f32, h: f32) -> impl Fn(Pt) -> Pt {
+        move |(x, y)| match self {
+            Turn::Clockwise => (h - y, x),
+            Turn::CounterClockwise => (y, w - x),
+            Turn::MirrorH => (w - x, y),
+            Turn::MirrorV => (x, h - y),
+        }
+    }
+
+    /// The way back from the turned picture to the `w`×`h` one.
+    fn back(self, w: f32, h: f32) -> ToOriginal {
+        let m = |a, b, c, d, tx, ty| ToOriginal { a, b, c, d, tx, ty };
+        match self {
+            // (x', y') = (h - y, x)  ⇒  (x, y) = (y', h - x')
+            Turn::Clockwise => m(0.0, 1.0, -1.0, 0.0, 0.0, h),
+            // (x', y') = (y, w - x)  ⇒  (x, y) = (w - y', x')
+            Turn::CounterClockwise => m(0.0, -1.0, 1.0, 0.0, w, 0.0),
+            Turn::MirrorH => m(-1.0, 0.0, 0.0, 1.0, w, 0.0),
+            Turn::MirrorV => m(1.0, 0.0, 0.0, -1.0, 0.0, h),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -358,6 +585,12 @@ struct Editor {
     gpu: Option<Gpu>,
     painter: Painter,
     base: Rc<Image>,
+    /// The crop's proportion, and whether its sides hold to edges.
+    crop_aspect: Aspect,
+    crop_snap: bool,
+    /// The picture as the editor opened it, for «Volver al original».
+    original: Rc<Image>,
+    to_original: ToOriginal,
     /// `base` with every pixelate applied.
     effective: Rc<Image>,
     shapes: Vec<Shape>,
@@ -414,6 +647,9 @@ struct Editor {
     /// A text pressed with the text tool: a drag moves it, and a release
     /// where it was pressed opens it for editing there.
     edit_on_release: Option<(usize, (f32, f32))>,
+    /// The highlighter stroke as the hand drew it; the shape shows it
+    /// straightened while it stays nearly straight (`straight_stroke`).
+    raw_stroke: Vec<Pt>,
     /// False until the window is placed and shown: a DPI change before
     /// that is Windows rescaling a window that is about to be placed.
     shown: bool,
@@ -507,6 +743,10 @@ fn create(
             gpu: None,
             painter,
             effective: base.clone(),
+            crop_aspect: Aspect::Free,
+            crop_snap: true,
+            original: base.clone(),
+            to_original: ToOriginal::IDENTITY,
             base,
             shapes: Vec::new(),
             undo: Vec::new(),
@@ -544,6 +784,7 @@ fn create(
             press_at: (0.0, 0.0),
             drag_ready: None,
             edit_on_release: None,
+            raw_stroke: Vec::new(),
             shown: false,
         };
         ed.layout();
@@ -748,6 +989,7 @@ impl Editor {
             base: self.base.clone(),
             shapes: self.shapes.clone(),
             background: self.background,
+            to_original: self.to_original,
         }
     }
 
@@ -788,6 +1030,7 @@ impl Editor {
         self.base = snap.base;
         self.shapes = snap.shapes;
         self.background = snap.background;
+        self.to_original = snap.to_original;
         self.selected = None;
         self.editing = None;
         self.refresh_pixels();
@@ -1048,8 +1291,8 @@ impl Editor {
             }
         };
         match key {
-            k if k == VK_ESCAPE.0 => self.commit_text(),
-            k if k == VK_RETURN.0 && c => self.commit_text(),
+            k if k == VK_ESCAPE.0 => self.finish_edit(),
+            k if k == VK_RETURN.0 && c => self.finish_edit(),
             k if k == VK_LEFT.0 => {
                 let pos = if has_selection && !sh {
                     lo
@@ -1110,12 +1353,10 @@ impl Editor {
                 }
             }
             k if k == VK_DELETE.0 => {
-                if has_selection {
-                    self.insert_text(i, "");
-                } else {
+                if !has_selection {
                     self.anchor = te::next(&text, self.caret, c);
-                    self.insert_text(i, "");
                 }
+                self.insert_text(i, "");
             }
             0x41 if c => {
                 self.anchor = 0;
@@ -1134,6 +1375,19 @@ impl Editor {
             }
             _ => {}
         }
+    }
+
+    /// Esc, Ctrl+Enter or a press on the text's frame: typing ends and the
+    /// text stays selected, so Delete removes it whole. It used to end
+    /// unselected, and a text could only be emptied letter by letter.
+    fn finish_edit(&mut self) {
+        let Some(i) = self.editing else { return };
+        let emptied = self.shapes.get(i).is_some_and(|s| s.is_degenerate());
+        self.commit_text();
+        if !emptied && i < self.shapes.len() {
+            self.selected = Some(i);
+        }
+        self.layout();
     }
 
     fn commit_text(&mut self) {
@@ -1162,8 +1416,28 @@ impl Editor {
                 right: w,
                 bottom: h,
             });
+            self.fit_crop_aspect();
         }
         self.layout();
+    }
+
+    /// Reshapes the crop being set out to the chosen proportion.
+    fn fit_crop_aspect(&mut self) {
+        let (w, h) = (self.base.width as f32, self.base.height as f32);
+        if let (Some(c), Some(r)) = (self.crop, self.crop_aspect.ratio(w, h)) {
+            self.crop = Some(aspect_fit(c, r, w, h));
+        }
+    }
+
+    /// The edge a crop side being dragged to `at` holds to, if any — when
+    /// snapping is on and the crop is free; `span` is the stretch the side
+    /// covers. The reach is a few screen pixels, whatever the zoom.
+    fn snap(&self, vertical: bool, at: f32, span: (f32, f32)) -> f32 {
+        if !self.crop_snap || self.crop_aspect != Aspect::Free {
+            return at;
+        }
+        let reach = 8.0 * self.s / self.z();
+        self.base.edge_near(vertical, at, span, reach).unwrap_or(at)
     }
 
     fn apply_crop(&mut self) {
@@ -1183,6 +1457,7 @@ impl Editor {
         }
         self.checkpoint();
         self.base = Rc::new(self.base.crop(r));
+        self.to_original = self.to_original.cropped(r.x as f32, r.y as f32);
         for s in &mut self.shapes {
             s.translate(-r.x as f32, -r.y as f32);
         }
@@ -1369,20 +1644,93 @@ impl Editor {
                     face: Face::Dropdown(label.into()),
                 });
             }
+            // The way of hiding by its sign, as in its menu: a word here was
+            // 132 px, and a narrow editor dropped the control altogether.
             Some(Kind::Pixelate) => {
-                let label = if self.obscure == Obscure::Pixelate {
-                    crate::i18n::tr("Pixelar", "Pixelate")
-                } else {
-                    crate::i18n::tr("Desenfocar", "Blur")
-                };
-                let w = 104.0 * s;
+                let w = 52.0 * s;
                 items.push(Item {
                     r: R { x, y, w, h: btn },
                     act: Act::Style,
-                    face: Face::Dropdown(label.into()),
+                    face: Face::IconDropdown(obscure_icon(self.obscure)),
                 });
+                x += w + 4.0 * s;
             }
             _ => {}
+        }
+        // The crop's options: proportion, turns, snapping, and the button
+        // that crops.
+        if self.tool == Tool::Crop {
+            let w = 96.0 * s;
+            items.push(Item {
+                r: R { x, y, w, h: btn },
+                act: Act::CropAspect,
+                face: Face::Dropdown(self.crop_aspect.label()),
+            });
+            x += w + gap;
+            for (act, icon) in [
+                (Act::Turn(Turn::CounterClockwise), Icon::RotateLeft),
+                (Act::Turn(Turn::Clockwise), Icon::RotateRight),
+                (Act::Turn(Turn::MirrorH), Icon::FlipH),
+                (Act::Turn(Turn::MirrorV), Icon::FlipV),
+                (Act::CropSnap, Icon::Magnet),
+            ] {
+                items.push(Item {
+                    r: R {
+                        x,
+                        y,
+                        w: btn,
+                        h: btn,
+                    },
+                    act,
+                    face: Face::Icon(icon),
+                });
+                x += btn + 2.0 * s;
+            }
+            x += gap;
+            let w = 86.0 * s;
+            items.push(Item {
+                r: R { x, y, w, h: btn },
+                act: Act::CropApply,
+                face: Face::Secondary(crate::i18n::tr("Recortar", "Crop").into()),
+            });
+        }
+        // Short of room, «Guardar como…» gives up its words first: the
+        // active tool's options matter more than a label.
+        let mut right_limit = right_limit;
+        // Where the left-hand controls end; the right-hand ones never count.
+        // (Measured by what starts before the limit, «Recortar» — starting
+        // just past it — was never counted, and was dropped.)
+        let left_end = |items: &[Item]| {
+            items
+                .iter()
+                .filter(|i| {
+                    i.r.y == y
+                        && !matches!(
+                            i.act,
+                            Act::Close | Act::Max | Act::Min | Act::Done | Act::SaveAs
+                        )
+                })
+                .map(|i| i.r.x + i.r.w)
+                .fold(0.0, f32::max)
+        };
+        if left_end(&items) > right_limit
+            && let Some(save) = items.iter_mut().find(|i| i.act == Act::SaveAs)
+        {
+            let freed = save.r.w - btn;
+            save.r.x += freed;
+            save.r.w = btn;
+            save.face = Face::Icon(Icon::Save);
+            right_limit += freed;
+        }
+        // Then «Recortar» keeps its tick alone; Enter does the same.
+        if left_end(&items) > right_limit
+            && let Some(apply) = items.iter_mut().find(|i| i.act == Act::CropApply)
+        {
+            // Tucked against the turns: the gap before it was the last
+            // few pixels it lacked.
+            apply.r.x -= gap - 6.0 * s;
+            apply.r.w = btn;
+            apply.face = Face::Icon(Icon::Check);
         }
         // A window too narrow for every option drops the ones that collide.
         items.retain(|i| {
@@ -1428,15 +1776,17 @@ impl Editor {
             act: Act::Redo,
             face: Face::Icon(Icon::Redo),
         });
+        // Sized to what it says, so no gap opens before its chevron.
+        let size_label = format!("{} × {}", self.base.width, self.base.height);
         items.push(Item {
             r: R {
                 x: 98.0 * s + 2.0 * small + 12.0 * s,
                 y: by,
-                w: 140.0 * s,
+                w: (size_label.chars().count() as f32 * 7.5 + 38.0).max(96.0) * s,
                 h: small,
             },
             act: Act::Resize,
-            face: Face::Dropdown(format!("{} × {}", self.base.width, self.base.height)),
+            face: Face::Dropdown(size_label),
         });
         let grip_w = 128.0 * s;
         items.push(Item {
@@ -1546,6 +1896,7 @@ impl Editor {
             Popover::Style => self.item(Act::Style),
             Popover::Zoom => self.item(Act::Zoom),
             Popover::Resize => self.item(Act::Resize),
+            Popover::Aspect => self.item(Act::CropAspect),
         };
         let Some(anchor) = anchor.map(|i| i.r) else {
             self.popover = None;
@@ -1553,15 +1904,20 @@ impl Editor {
         };
         let s = self.s;
         let pad = 8.0 * s;
+        let (cw, _) = self.client();
+        // A popover opens under its anchor's left edge, but never past the
+        // window's right one: an anchor near that edge shifts it left.
+        let left = |width: f32| (anchor.x).min(cw - width - 4.0 * s).max(4.0 * s);
         let mut items = Vec::new();
         match pop {
             Popover::Color => {
                 let d = 26.0 * s;
+                let x0 = left(5.0 * (d + 6.0 * s) - 6.0 * s + 2.0 * pad);
                 for i in 0..MARK_COLORS.len() {
                     let (c, r) = ((i % 5) as f32, (i / 5) as f32);
                     items.push(Item {
                         r: R {
-                            x: anchor.x + pad + c * (d + 6.0 * s),
+                            x: x0 + pad + c * (d + 6.0 * s),
                             y: anchor.y + anchor.h + 6.0 * s + pad + r * (d + 6.0 * s),
                             w: d,
                             h: d,
@@ -1571,7 +1927,7 @@ impl Editor {
                     });
                 }
             }
-            Popover::Size | Popover::Style | Popover::Zoom | Popover::Resize => {
+            Popover::Size | Popover::Style | Popover::Zoom | Popover::Resize | Popover::Aspect => {
                 let rows: Vec<(Act, String)> = match pop {
                     Popover::Size if self.active_kind() == Some(Kind::Text) => TEXT_SIZES
                         .iter()
@@ -1607,10 +1963,22 @@ impl Editor {
                             crate::i18n::tr("Pixelar (seguro)", "Pixelate (secure)").into(),
                         ),
                         (
+                            Act::PickObscure(Obscure::SecureBlur),
+                            crate::i18n::tr("Desenfocar (seguro)", "Blur (secure)").into(),
+                        ),
+                        (
                             Act::PickObscure(Obscure::Blur),
                             crate::i18n::tr("Desenfocar (suave)", "Blur (smooth)").into(),
                         ),
+                        (
+                            Act::PickObscure(Obscure::BlackOut),
+                            crate::i18n::tr("Tapar en negro", "Black out").into(),
+                        ),
                     ],
+                    Popover::Aspect => ASPECTS
+                        .iter()
+                        .map(|a| (Act::PickAspect(*a), a.label()))
+                        .collect(),
                     // The width is typed straight into the first row; each
                     // other row is a ready-made size, with what it makes.
                     Popover::Resize => {
@@ -1628,6 +1996,17 @@ impl Editor {
                                 self.resize_text
                             ),
                         )];
+                        if !Rc::ptr_eq(&self.base, &self.original) {
+                            rows.push((
+                                Act::RevertOriginal,
+                                format!(
+                                    "{}\t{} × {}",
+                                    crate::i18n::tr("Volver al original", "Back to original"),
+                                    self.original.width,
+                                    self.original.height
+                                ),
+                            ));
+                        }
                         for k in RESIZES {
                             let w = (w0 as f32 * k).round() as u32;
                             if let Some((w, h)) = resized_size(w0, h0, w) {
@@ -1669,6 +2048,8 @@ impl Editor {
                 let w = match pop {
                     Popover::Zoom => 230.0,
                     Popover::Resize => 300.0,
+                    Popover::Style => 200.0,
+                    Popover::Aspect => 160.0,
                     _ => 170.0,
                 } * s;
                 let total = rows.len() as f32 * row_h + 2.0 * pad;
@@ -1678,10 +2059,11 @@ impl Editor {
                 } else {
                     anchor.y + anchor.h + 6.0 * s + pad
                 };
+                let x0 = left(w);
                 for (i, (act, label)) in rows.into_iter().enumerate() {
                     items.push(Item {
                         r: R {
-                            x: anchor.x + pad,
+                            x: x0 + pad,
                             y: top + i as f32 * row_h,
                             w: w - 2.0 * pad,
                             h: row_h,
@@ -2017,7 +2399,11 @@ impl Editor {
                 format!("{cw_} × {ch_}   ·   Intro para recortar, Esc para cancelar"),
                 format!("{cw_} × {ch_}   ·   Enter to crop, Esc to cancel"),
             );
-            self.pill_text(t, g, &label, (a.0 + b.0) / 2.0, b.1 + 22.0 * self.s);
+            // Below the crop, but never under the bottom bar: a crop to the
+            // picture's foot put it there, out of sight.
+            let canvas = self.canvas();
+            let y = (b.1 + 22.0 * self.s).min(canvas.y + canvas.h - 20.0 * self.s);
+            self.pill_text(t, g, &label, (a.0 + b.0) / 2.0, y);
         }
     }
 
@@ -2112,6 +2498,13 @@ impl Editor {
             for r in [
                 group(&[Act::Tool(Tool::Crop), Act::Background]),
                 group(&tool_acts),
+                group(&[
+                    Act::Turn(Turn::CounterClockwise),
+                    Act::Turn(Turn::Clockwise),
+                    Act::Turn(Turn::MirrorH),
+                    Act::Turn(Turn::MirrorV),
+                    Act::CropSnap,
+                ]),
             ]
             .into_iter()
             .flatten()
@@ -2132,6 +2525,7 @@ impl Editor {
                 let active = match item.act {
                     Act::Tool(tool) => self.tool == tool,
                     Act::Background => self.sidebar,
+                    Act::CropSnap => self.crop_snap,
                     _ => false,
                 };
                 let r = item.r;
@@ -2178,20 +2572,24 @@ impl Editor {
                         }
                         icons.draw(t, &g.brush, *icon, r.cx(), r.cy(), 18.0 * s, color);
                     }
+                    // A pill like the other dropdowns beside it, the colour
+                    // a dot with a hairline ring so a dark one reads on the
+                    // dark chrome.
                     Face::Swatch => {
-                        if hover {
-                            g.brush.SetColor(&p.pill_hover);
-                            t.FillRoundedRectangle(&pill, &g.brush);
-                        }
+                        g.brush
+                            .SetColor(if hover { &p.pill_hover } else { &p.pill });
+                        t.FillRoundedRectangle(&pill, &g.brush);
                         let (cr, cg, cb) = self.current_color();
                         let dot = D2D1_ELLIPSE {
-                            point: point(r.x + 15.0 * s, r.cy()),
-                            radiusX: 8.0 * s,
-                            radiusY: 8.0 * s,
+                            point: point(r.x + 16.0 * s, r.cy()),
+                            radiusX: 7.0 * s,
+                            radiusY: 7.0 * s,
                         };
                         g.brush.SetColor(&rgba(cr, cg, cb, 1.0));
                         t.FillEllipse(&dot, &g.brush);
-                        g.brush.SetColor(&rgba(0, 0, 0, 0.2));
+                        let mut ring = p.text;
+                        ring.a = 0.25;
+                        g.brush.SetColor(&ring);
                         t.DrawEllipse(&dot, &g.brush, 1.0, None);
                         icons.draw(
                             t,
@@ -2240,6 +2638,21 @@ impl Editor {
                         g.brush.SetColor(&c);
                         t.FillRoundedRectangle(&pill, &g.brush);
                         self.text(t, g, label, r, p.on_accent, true, true);
+                    }
+                    Face::IconDropdown(icon) => {
+                        g.brush
+                            .SetColor(if hover { &p.pill_hover } else { &p.pill });
+                        t.FillRoundedRectangle(&pill, &g.brush);
+                        icons.draw(t, &g.brush, *icon, r.x + 17.0 * s, r.cy(), 17.0 * s, p.icon);
+                        icons.draw(
+                            t,
+                            &g.brush,
+                            Icon::Chevron,
+                            r.x + r.w - 13.0 * s,
+                            r.cy(),
+                            12.0 * s,
+                            p.text_dim,
+                        );
                     }
                     Face::Secondary(label) => {
                         g.brush
@@ -2470,7 +2883,11 @@ impl Editor {
                         };
                         g.brush.SetColor(&rgba(cr, cg, cb, 1.0));
                         t.FillEllipse(&e, &g.brush);
-                        g.brush.SetColor(&rgba(0, 0, 0, 0.18));
+                        // A ring in the text colour: black on the dark
+                        // popover and white on the light one were invisible.
+                        let mut ring = p.text;
+                        ring.a = 0.25;
+                        g.brush.SetColor(&ring);
                         t.DrawEllipse(&e, &g.brush, 1.0, None);
                         if i == self.color || hover {
                             g.brush.SetColor(&p.accent);
@@ -2495,6 +2912,7 @@ impl Editor {
                             Act::PickObscure(v) => self.obscure == v,
                             Act::PickArrowCurved(v) => self.arrow_curved == v,
                             Act::PickZoom(v) => self.zoom == v,
+                            Act::PickAspect(v) => self.crop_aspect == v,
                             _ => false,
                         };
                         if hover || selected {
@@ -2518,7 +2936,27 @@ impl Editor {
                                 h: r.h,
                             };
                             let (name, keys) = label.split_once('\t').unwrap_or((label, ""));
-                            self.text(t, g, name, inner, color, false, false);
+                            // A row that names a way of hiding shows its sign.
+                            let sign = match item.act {
+                                Act::PickObscure(o) => Some(obscure_icon(o)),
+                                _ => None,
+                            };
+                            let mut text_at = inner;
+                            if let Some(icon) = sign {
+                                let ink = if selected { color } else { p.text_dim };
+                                self.icons(&g.round).draw(
+                                    t,
+                                    &g.brush,
+                                    icon,
+                                    inner.x + 8.0 * s,
+                                    r.cy(),
+                                    16.0 * s,
+                                    ink,
+                                );
+                                text_at.x += 26.0 * s;
+                                text_at.w -= 26.0 * s;
+                            }
+                            self.text(t, g, name, text_at, color, false, false);
                             if !keys.is_empty() {
                                 let _ = g.ui.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
                                 g.brush
@@ -2756,12 +3194,13 @@ impl Editor {
                 bg.fill = fill;
                 self.background = Some(bg);
             }
-            Act::Color | Act::Size | Act::Style | Act::Zoom | Act::Resize => {
+            Act::Color | Act::Size | Act::Style | Act::Zoom | Act::Resize | Act::CropAspect => {
                 let pop = match action {
                     Act::Color => Popover::Color,
                     Act::Size => Popover::Size,
                     Act::Style => Popover::Style,
                     Act::Resize => Popover::Resize,
+                    Act::CropAspect => Popover::Aspect,
                     _ => Popover::Zoom,
                 };
                 if pop == Popover::Resize {
@@ -2820,6 +3259,19 @@ impl Editor {
                 self.layout();
             }
             Act::ResizeTo(w) => self.resize_to(w),
+            Act::RevertOriginal => self.revert_to_original(),
+            Act::Turn(turn) => self.turn(turn),
+            Act::PickAspect(a) => {
+                self.crop_aspect = a;
+                self.fit_crop_aspect();
+                self.popover = None;
+                self.layout();
+            }
+            Act::CropSnap => {
+                self.crop_snap = !self.crop_snap;
+                self.layout();
+            }
+            Act::CropApply => self.apply_crop(),
             Act::ResizeTyped => {
                 if let Ok(w) = self.resize_text.parse::<u32>() {
                     self.resize_to(w);
@@ -3163,7 +3615,16 @@ impl Editor {
             self.popover = None;
             self.pop_items.clear();
             if self.items.iter().any(|i| {
-                i.r.contains(p) && matches!(i.act, Act::Color | Act::Size | Act::Style | Act::Zoom)
+                i.r.contains(p)
+                    && matches!(
+                        i.act,
+                        Act::Color
+                            | Act::Size
+                            | Act::Style
+                            | Act::Zoom
+                            | Act::Resize
+                            | Act::CropAspect
+                    )
             }) {
                 return;
             }
@@ -3185,12 +3646,17 @@ impl Editor {
         let ip = self.to_image(p);
 
         self.edit_on_release = None;
-        // The frame of the text being edited grabs it.
+        // The frame of the text being edited takes it as an object: typing
+        // ends, the text is selected — so Delete removes it whole — and a
+        // drag moves it. Inside, a press still places the caret.
         if let Some(i) = self.editing
             && self.text_grip(i, p)
         {
-            self.checkpoint();
-            self.drag = Drag::Move { index: i, last: ip };
+            self.finish_edit();
+            if self.selected == Some(i) {
+                self.checkpoint();
+                self.drag = Drag::Move { index: i, last: ip };
+            }
             return;
         }
 
@@ -3306,6 +3772,7 @@ impl Editor {
                 self.anchor = 0;
             }
             _ => {
+                self.raw_stroke = shape.points.clone();
                 self.shapes.push(shape);
                 self.drag = Drag::Create;
             }
@@ -3339,11 +3806,28 @@ impl Editor {
                 let curved = self.arrow_curved;
                 if let Some(s) = self.shapes.last_mut() {
                     match s.kind {
+                        // Shown straight while the hand keeps it nearly so,
+                        // and as drawn the moment it does not. A pen line is
+                        // thin, so it is judged as if it were three times
+                        // as wide, and never under 12 px: the hand wavers by
+                        // more than half of 4 px.
                         Kind::Pen | Kind::Highlighter => {
-                            let last = *s.points.last().unwrap();
-                            if (last.0 - ip.0).abs() + (last.1 - ip.1).abs() >= 1.0 {
-                                s.points.push(ip);
+                            let width = if s.kind == Kind::Pen {
+                                (s.size * 3.0).max(12.0)
+                            } else {
+                                s.stroke_width()
+                            };
+                            let raw = &mut self.raw_stroke;
+                            let last = raw.last().copied().unwrap_or(ip);
+                            if raw.is_empty()
+                                || (last.0 - ip.0).abs() + (last.1 - ip.1).abs() >= 1.0
+                            {
+                                raw.push(ip);
                             }
+                            s.points = match crate::annot::straight_stroke(raw, width) {
+                                Some(ends) => ends.to_vec(),
+                                None => raw.clone(),
+                            };
                         }
                         k => {
                             s.b = if shift() { constrain(k, s.a, ip) } else { ip };
@@ -3368,11 +3852,21 @@ impl Editor {
             Drag::CropNew { start } => {
                 let (w, h) = (self.base.width as f32, self.base.height as f32);
                 let c = |v: f32, max: f32| v.clamp(0.0, max);
-                self.crop = Some(D2D_RECT_F {
-                    left: c(start.0.min(ip.0), w),
-                    top: c(start.1.min(ip.1), h),
-                    right: c(start.0.max(ip.0), w),
-                    bottom: c(start.1.max(ip.1), h),
+                let to = (c(ip.0, w), c(ip.1, h));
+                self.crop = Some(match self.crop_aspect.ratio(w, h) {
+                    Some(r) => aspect_corner(start, to, r, w, h),
+                    None => {
+                        let span_v = (start.1.min(to.1), start.1.max(to.1));
+                        let span_h = (start.0.min(to.0), start.0.max(to.0));
+                        let x = self.snap(true, to.0, span_v);
+                        let y = self.snap(false, to.1, span_h);
+                        D2D_RECT_F {
+                            left: start.0.min(x),
+                            top: start.1.min(y),
+                            right: start.0.max(x),
+                            bottom: start.1.max(y),
+                        }
+                    }
                 });
             }
             Drag::CropMove { last } => {
@@ -3388,10 +3882,22 @@ impl Editor {
                 }
             }
             Drag::CropHandle { handle } => {
-                if let Some(c) = &mut self.crop {
-                    let (w, h) = (self.base.width as f32, self.base.height as f32);
-                    let x = ip.0.clamp(0.0, w);
-                    let y = ip.1.clamp(0.0, h);
+                let (w, h) = (self.base.width as f32, self.base.height as f32);
+                let ratio = self.crop_aspect.ratio(w, h);
+                if let (Some(c), Some(r)) = (self.crop, ratio) {
+                    // The opposite corner stays where it is.
+                    let fixed = match handle {
+                        0 => (c.right, c.bottom),
+                        1 => (c.left, c.bottom),
+                        2 => (c.right, c.top),
+                        _ => (c.left, c.top),
+                    };
+                    let to = (ip.0.clamp(0.0, w), ip.1.clamp(0.0, h));
+                    self.crop = Some(aspect_corner(fixed, to, r, w, h));
+                } else if let Some(c0) = self.crop {
+                    let x = self.snap(true, ip.0.clamp(0.0, w), (c0.top, c0.bottom));
+                    let y = self.snap(false, ip.1.clamp(0.0, h), (c0.left, c0.right));
+                    let c = self.crop.as_mut().expect("checked above");
                     match handle {
                         0 => (c.left, c.top) = (x.min(c.right - 1.0), y.min(c.bottom - 1.0)),
                         1 => (c.right, c.top) = (x.max(c.left + 1.0), y.min(c.bottom - 1.0)),
@@ -3686,7 +4192,84 @@ impl Editor {
             s.scale(kx, ky);
         }
         self.base = Rc::new(image);
+        self.to_original = self.to_original.resized(kx, ky);
         self.crop = None;
+        self.refresh_pixels();
+        self.popover = None;
+        self.pop_items.clear();
+        self.zoom = None;
+        self.pan = (0.0, 0.0);
+        self.layout();
+    }
+
+    /// «Volver al original»: every crop and resize undone in one step, the
+    /// marks carried back to where they lie on the picture as it opened.
+    /// Carries every mark through `f`, sizes times `k`. A text keeps
+    /// reading left to right: its box's centre goes through `f`, not its
+    /// corner, or a turned text would land beside where it was.
+    fn map_shapes(&mut self, f: impl Fn(Pt) -> Pt, k: f32) {
+        for i in 0..self.shapes.len() {
+            if self.shapes[i].kind == Kind::Text {
+                let b = self.shapes[i].bounds(self.text_measure(&self.shapes[i]));
+                let s = &mut self.shapes[i];
+                let centre = ((b.left + b.right) / 2.0, (b.top + b.bottom) / 2.0);
+                let reach = (centre.0 - s.a.0, centre.1 - s.a.1);
+                let to = f(centre);
+                s.a = (to.0 - reach.0 * k, to.1 - reach.1 * k);
+                s.b = s.a;
+                s.size *= k;
+            } else {
+                self.shapes[i].map(&f, k);
+            }
+        }
+    }
+
+    /// Turns or mirrors the whole picture, the marks with it: one undo
+    /// step, and «Volver al original» undoes it with the rest.
+    fn turn(&mut self, turn: Turn) {
+        self.commit_text();
+        self.checkpoint();
+        let (w, h) = (self.base.width as f32, self.base.height as f32);
+        let image = match turn {
+            Turn::Clockwise => self.base.rotated(true),
+            Turn::CounterClockwise => self.base.rotated(false),
+            Turn::MirrorH => self.base.flipped(true),
+            Turn::MirrorV => self.base.flipped(false),
+        };
+        self.map_shapes(turn.forward(w, h), 1.0);
+        self.base = Rc::new(image);
+        self.to_original = self.to_original.turned(turn, w, h);
+        // A crop being set out is set out again on the new picture, in the
+        // proportion chosen — it fell back to the whole picture, and
+        // «Recortar» then cropped nothing.
+        if self.crop.is_some() {
+            self.crop = Some(D2D_RECT_F {
+                left: 0.0,
+                top: 0.0,
+                right: self.base.width as f32,
+                bottom: self.base.height as f32,
+            });
+            self.fit_crop_aspect();
+        }
+        self.selected = None;
+        self.refresh_pixels();
+        self.zoom = None;
+        self.pan = (0.0, 0.0);
+        self.layout();
+    }
+
+    fn revert_to_original(&mut self) {
+        if Rc::ptr_eq(&self.base, &self.original) {
+            return;
+        }
+        self.commit_text();
+        self.checkpoint();
+        let t = self.to_original;
+        self.map_shapes(|p| t.apply(p), t.scale());
+        self.base = self.original.clone();
+        self.to_original = ToOriginal::IDENTITY;
+        self.crop = None;
+        self.selected = None;
         self.refresh_pixels();
         self.popover = None;
         self.pop_items.clear();
@@ -3984,6 +4567,91 @@ mod tests {
         assert_eq!(pan_limit(800.0, 500.0, 24.0), 0.0);
         // 2000 long on 800 with 24 each side: 1248 to share, 624 each way.
         assert_eq!(pan_limit(800.0, 2000.0, 24.0), 624.0);
+    }
+
+    #[test]
+    fn a_proportion_fits_inside_the_crop_and_a_drag_keeps_it() {
+        let full = D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: 1000.0,
+            bottom: 800.0,
+        };
+        let r = aspect_fit(full, 16.0 / 9.0, 1000.0, 800.0);
+        assert_eq!((r.left, r.right), (0.0, 1000.0));
+        assert!(((r.bottom - r.top) - 562.5).abs() < 0.01);
+        assert!((r.top - 118.75).abs() < 0.01, "centred: {r:?}");
+        let sq = aspect_fit(full, 1.0, 1000.0, 800.0);
+        assert_eq!((sq.right - sq.left, sq.bottom - sq.top), (800.0, 800.0));
+        // Dragged from (100, 100) towards (900, 300) at 1:1: the wider move
+        // leads and the square is cut to the picture's bottom.
+        let c = aspect_corner((100.0, 100.0), (900.0, 300.0), 1.0, 1000.0, 800.0);
+        assert_eq!((c.left, c.top), (100.0, 100.0));
+        assert!(
+            (c.right - c.left - (c.bottom - c.top)).abs() < 0.01,
+            "square: {c:?}"
+        );
+        assert!(c.bottom <= 800.0 && c.right <= 1000.0);
+        // Up and to the left of the fixed corner.
+        let up = aspect_corner((500.0, 500.0), (200.0, 450.0), 4.0 / 3.0, 1000.0, 800.0);
+        assert_eq!((up.right, up.bottom), (500.0, 500.0));
+        assert!(((up.right - up.left) / (up.bottom - up.top) - 4.0 / 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn every_turn_is_undone_by_its_way_back() {
+        let (w, h) = (400.0, 300.0);
+        for turn in [
+            Turn::Clockwise,
+            Turn::CounterClockwise,
+            Turn::MirrorH,
+            Turn::MirrorV,
+        ] {
+            for p in [(0.0, 0.0), (300.0, 200.0), (400.0, 300.0), (12.5, 287.0)] {
+                let there = turn.forward(w, h)(p);
+                let back = turn.back(w, h).apply(there);
+                assert!(
+                    (back.0 - p.0).abs() < 1e-3 && (back.1 - p.1).abs() < 1e-3,
+                    "{turn:?} {p:?}"
+                );
+            }
+        }
+        // Turned clockwise, then mirrored, then cropped: still found.
+        let drawn = (300.0, 200.0);
+        let turned = Turn::Clockwise.forward(w, h)(drawn); // on 300 × 400
+        let mirrored = Turn::MirrorH.forward(h, w)(turned);
+        let now = (mirrored.0 - 50.0, mirrored.1 - 60.0);
+        let t = ToOriginal::IDENTITY
+            .turned(Turn::Clockwise, w, h)
+            .turned(Turn::MirrorH, h, w)
+            .cropped(50.0, 60.0);
+        let back = t.apply(now);
+        assert!(
+            (back.0 - drawn.0).abs() < 1e-3 && (back.1 - drawn.1).abs() < 1e-3,
+            "{back:?}"
+        );
+        assert!((t.scale() - 1.0).abs() < 1e-6, "a turn changes no length");
+    }
+
+    #[test]
+    fn back_to_original_undoes_crops_and_resizes_in_any_order() {
+        // A point drawn at (300, 200) on the picture as it opened.
+        let drawn = (300.0, 200.0);
+        // Crop at (100, 50), halve, crop at (20, 10), double.
+        let crop1 = (drawn.0 - 100.0, drawn.1 - 50.0);
+        let half = (crop1.0 * 0.5, crop1.1 * 0.5);
+        let crop2 = (half.0 - 20.0, half.1 - 10.0);
+        let now = (crop2.0 * 2.0, crop2.1 * 2.0);
+        let t = ToOriginal::IDENTITY
+            .cropped(100.0, 50.0)
+            .resized(0.5, 0.5)
+            .cropped(20.0, 10.0)
+            .resized(2.0, 2.0);
+        let back = t.apply(now);
+        assert!(
+            (back.0 - drawn.0).abs() < 1e-3 && (back.1 - drawn.1).abs() < 1e-3,
+            "{back:?}"
+        );
     }
 
     #[test]

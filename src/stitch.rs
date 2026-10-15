@@ -16,7 +16,7 @@
 //! Rows of a single colour match anything, so they are not counted as
 //! evidence.
 
-use crate::image::Image;
+use crate::image::{Image, luma};
 
 /// What one frame added.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,10 +242,6 @@ fn edge_zone(width: usize) -> usize {
 const MIN_HEIGHT: usize = 48;
 
 /// The brightness of a BGR(A) pixel: Rec. 601 weights, in 256ths.
-fn luma(px: &[u8]) -> u32 {
-    (px[2] as u32 * 77 + px[1] as u32 * 150 + px[0] as u32 * 29) >> 8
-}
-
 const SLICES: usize = 32;
 type Profile = [u8; SLICES];
 

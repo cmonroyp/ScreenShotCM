@@ -5,12 +5,11 @@
 
 use std::cell::RefCell;
 
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, CreateSolidBrush, DT_LEFT,
-    DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FW_NORMAL, FW_SEMIBOLD, FillRect,
-    FrameRect, GetSysColor, GetSysColorBrush, HDC, HFONT, InvalidateRect, PAINTSTRUCT,
-    SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, CreateSolidBrush, DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW,
+    EndPaint, FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, HBRUSH, HDC, HFONT, InvalidateRect,
+    PAINTSTRUCT, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -23,20 +22,24 @@ use windows::Win32::UI::Shell::{
     FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
-    CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, CW_USEDEFAULT, CreateWindowExW,
-    DLGC_WANTALLKEYS, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, ES_NUMBER, ES_READONLY,
-    GetWindowTextW, HMENU, IDC_ARROW, IsIconic, LoadCursorW, MB_ICONWARNING, MB_OK, MessageBoxW,
-    RegisterClassExW, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+    BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON,
+    BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, CW_USEDEFAULT,
+    CreateWindowExW, DLGC_WANTALLKEYS, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, ES_NUMBER,
+    ES_READONLY, EnumChildWindows, GetClassNameW, GetDlgCtrlID, GetParent, GetWindowTextW, HMENU,
+    IDC_ARROW, IsIconic, LoadCursorW, MB_ICONWARNING, MB_OK, MessageBoxW, RegisterClassExW,
+    STN_CLICKED, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
     SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLORBTN, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETDLGCODE, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_PAINT, WM_SETFOCUS, WM_SETFONT, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
-    WS_GROUP, WS_MINIMIZEBOX, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_GETDLGCODE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
+    WM_LBUTTONDOWN, WM_PAINT, WM_SETFOCUS, WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW,
+    WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_GROUP, WS_MINIMIZEBOX,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, w};
 
-use windows::Win32::UI::Controls::BST_CHECKED;
+use windows::Win32::UI::Controls::{BST_CHECKED, SetWindowTheme};
+
+use crate::theme::{self, Palette, gdi};
 
 use crate::settings::{ImageFormat, Settings};
 use crate::util::wide;
@@ -71,6 +74,9 @@ const ID_HK_SCROLLING: i32 = 124;
 const ID_RESET: i32 = 130;
 const ID_CANCEL: i32 = 131;
 const ID_OK: i32 = 132;
+const ID_PNG_LABEL: i32 = 133;
+const ID_JPEG_LABEL: i32 = 134;
+const ID_THEME: i32 = 135;
 
 const CLOSE_CHOICES: [(u32, &str, &str); 6] = [
     (0, "Nunca", "Never"),
@@ -108,6 +114,15 @@ const LANGUAGE_CHOICES: [(crate::settings::Language, &str, &str); 3] = [
     (crate::settings::Language::Spanish, "Español", "Español"),
     (crate::settings::Language::English, "English", "English"),
 ];
+const THEME_CHOICES: [(crate::settings::ThemeChoice, &str, &str); 3] = [
+    (
+        crate::settings::ThemeChoice::Auto,
+        "Automático (el de Windows)",
+        "Automatic (Windows' own)",
+    ),
+    (crate::settings::ThemeChoice::Light, "Claro", "Light"),
+    (crate::settings::ThemeChoice::Dark, "Oscuro", "Dark"),
+];
 const TIMER_CHOICES: [u32; 4] = [3, 5, 10, 15];
 
 struct Window {
@@ -115,6 +130,11 @@ struct Window {
     font: HFONT,
     bold: HFONT,
     s: f32,
+    /// The palette the window opened in, and its two GDI brushes: the
+    /// background and a field's.
+    pal: Palette,
+    bg: HBRUSH,
+    field: HBRUSH,
     /// Section headings: text and top in client pixels.
     headings: Vec<(String, i32, i32)>,
 }
@@ -160,7 +180,7 @@ fn create() -> Result<(), String> {
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
             lpszClassName: CLASS,
-            hbrBackground: GetSysColorBrush(COLOR_WINDOW),
+            // Erased by hand (WM_ERASEBKGND), in the palette's chrome.
             hIcon: crate::icon::class_icon(),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             ..Default::default()
@@ -198,6 +218,10 @@ fn create() -> Result<(), String> {
             None,
         )
         .map_err(|e| e.to_string())?;
+        theme::frame_window(hwnd);
+        let pal = theme::current();
+        let bg = CreateSolidBrush(gdi(pal.chrome));
+        let field_brush = CreateSolidBrush(gdi(pal.field));
         let s = GetDpiForWindow(hwnd) as f32 / 96.0;
         let px = |v: f32| (v * s).round() as i32;
         let font = crate::util::ui_font(-px(15.0), FW_NORMAL);
@@ -247,6 +271,19 @@ fn create() -> Result<(), String> {
                 Some(WPARAM(font.0 as usize)),
                 Some(LPARAM(1)),
             );
+            // The common controls draw themselves light unless told; these
+            // are the visual styles Explorer's own dark mode uses.
+            if pal.dark {
+                let mut name = [0u16; 32];
+                let n = GetClassNameW(h, &mut name) as usize;
+                let combo = String::from_utf16_lossy(&name[..n]).eq_ignore_ascii_case("ComboBox");
+                let style = if combo {
+                    w!("DarkMode_CFD")
+                } else {
+                    w!("DarkMode_Explorer")
+                };
+                let _ = SetWindowTheme(h, style, PCWSTR::null());
+            }
             h
         };
         let check = |text: &str, x: i32, y: i32, w: i32, id: i32, on: bool| {
@@ -313,6 +350,20 @@ fn create() -> Result<(), String> {
             ID_LANGUAGE,
             &LANGUAGE_CHOICES.map(|c| crate::i18n::tr(c.1, c.2)),
             language_idx,
+        );
+        y += row + px(4.0);
+        label(crate::i18n::tr("Tema:", "Theme:"), left, y, px(170.0));
+        let theme_idx = THEME_CHOICES
+            .iter()
+            .position(|c| c.0 == settings.theme)
+            .unwrap_or(0);
+        combo(
+            left + px(180.0),
+            y,
+            px(260.0),
+            ID_THEME,
+            &THEME_CHOICES.map(|c| crate::i18n::tr(c.1, c.2)),
+            theme_idx,
         );
         y += row + px(6.0);
 
@@ -414,25 +465,48 @@ fn create() -> Result<(), String> {
         );
         y += row + px(4.0);
         label(crate::i18n::tr("Formato:", "Format:"), left, y, px(80.0));
+        // A themed radio button draws its caption in black whatever the
+        // window says, unreadable on the dark palette: the buttons carry
+        // no caption, and a label beside each, clickable, says it.
         let png = ctl(
             w!("BUTTON"),
-            "PNG",
+            "",
             BS_AUTORADIOBUTTON as u32 | WS_GROUP.0 | WS_TABSTOP.0,
             left + px(90.0),
             y,
-            px(70.0),
+            px(20.0),
             px(24.0),
             ID_PNG,
         );
+        ctl(
+            w!("STATIC"),
+            "PNG",
+            0x0100, // SS_NOTIFY
+            left + px(112.0),
+            y + px(3.0),
+            px(48.0),
+            px(22.0),
+            ID_PNG_LABEL,
+        );
         let jpg = ctl(
             w!("BUTTON"),
-            "JPEG",
+            "",
             BS_AUTORADIOBUTTON as u32,
             left + px(170.0),
             y,
-            px(80.0),
+            px(20.0),
             px(24.0),
             ID_JPEG,
+        );
+        ctl(
+            w!("STATIC"),
+            "JPEG",
+            0x0100, // SS_NOTIFY
+            left + px(192.0),
+            y + px(3.0),
+            px(58.0),
+            px(22.0),
+            ID_JPEG_LABEL,
         );
         SendMessageW(
             if settings.image_format == ImageFormat::Png {
@@ -671,6 +745,9 @@ fn create() -> Result<(), String> {
                 font,
                 bold,
                 s,
+                pal,
+                bg,
+                field: field_brush,
                 headings,
             })
         });
@@ -678,6 +755,121 @@ fn create() -> Result<(), String> {
         let _ = SetForegroundWindow(hwnd);
     }
     Ok(())
+}
+
+/// Lays the window out again at scale `s`: every control moved and sized
+/// by the ratio, new fonts, the headings with them, and the window placed
+/// where Windows suggests.
+fn rescale(hwnd: HWND, s: f32, suggested: RECT) {
+    let Some((old_s, old_font, old_bold)) =
+        WINDOW.with(|w| w.borrow().as_ref().map(|w| (w.s, w.font, w.bold)))
+    else {
+        return;
+    };
+    if (s - old_s).abs() < f32::EPSILON {
+        return;
+    }
+    let k = s / old_s;
+    let font = crate::util::ui_font(-(15.0 * s).round() as i32, FW_NORMAL);
+    let bold = crate::util::ui_font(-(15.0 * s).round() as i32, FW_SEMIBOLD);
+    struct Ctx {
+        parent: HWND,
+        k: f32,
+        font: HFONT,
+    }
+    extern "system" fn each(child: HWND, l: LPARAM) -> windows::core::BOOL {
+        let ctx = unsafe { &*(l.0 as *const Ctx) };
+        unsafe {
+            // Only the window's own controls: a combo box's edit and list
+            // follow their combo.
+            if GetParent(child).unwrap_or_default() != ctx.parent {
+                return true.into();
+            }
+            let mut r = RECT::default();
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(child, &mut r);
+            let mut pts = [
+                windows::Win32::Foundation::POINT {
+                    x: r.left,
+                    y: r.top,
+                },
+                windows::Win32::Foundation::POINT {
+                    x: r.right,
+                    y: r.bottom,
+                },
+            ];
+            windows::Win32::Graphics::Gdi::MapWindowPoints(None, Some(ctx.parent), &mut pts);
+            let sc = |v: i32| (v as f32 * ctx.k).round() as i32;
+            let mut name = [0u16; 32];
+            let n = GetClassNameW(child, &mut name) as usize;
+            let combo = String::from_utf16_lossy(&name[..n]).eq_ignore_ascii_case("ComboBox");
+            // A combo's window is its closed box; its height is set by the
+            // font, and its list is asked for by the height given.
+            let h = if combo {
+                sc(240)
+            } else {
+                sc(pts[1].y - pts[0].y)
+            };
+            let _ = SetWindowPos(
+                child,
+                None,
+                sc(pts[0].x),
+                sc(pts[0].y),
+                sc(pts[1].x - pts[0].x),
+                h,
+                SWP_NOZORDER,
+            );
+            SendMessageW(
+                child,
+                WM_SETFONT,
+                Some(WPARAM(ctx.font.0 as usize)),
+                Some(LPARAM(1)),
+            );
+        }
+        true.into()
+    }
+    let ctx = Ctx {
+        parent: hwnd,
+        k,
+        font,
+    };
+    unsafe {
+        let _ = EnumChildWindows(Some(hwnd), Some(each), LPARAM(&ctx as *const Ctx as isize));
+    }
+    WINDOW.with(|w| {
+        if let Some(w) = w.borrow_mut().as_mut() {
+            w.s = s;
+            w.font = font;
+            w.bold = bold;
+            for (_, x, y) in &mut w.headings {
+                *x = (*x as f32 * k).round() as i32;
+                *y = (*y as f32 * k).round() as i32;
+            }
+        }
+    });
+    unsafe {
+        let _ = DeleteObject(old_font.into());
+        let _ = DeleteObject(old_bold.into());
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            suggested.left,
+            suggested.top,
+            suggested.right - suggested.left,
+            suggested.bottom - suggested.top,
+            SWP_NOZORDER,
+        );
+        // Every control repainted where it now is: invalidating the window
+        // alone left them blank.
+        let _ = windows::Win32::Graphics::Gdi::RedrawWindow(
+            Some(hwnd),
+            None,
+            None,
+            windows::Win32::Graphics::Gdi::RDW_INVALIDATE
+                | windows::Win32::Graphics::Gdi::RDW_ERASE
+                | windows::Win32::Graphics::Gdi::RDW_FRAME
+                | windows::Win32::Graphics::Gdi::RDW_ALLCHILDREN,
+        );
+    }
 }
 
 fn item(hwnd: HWND, id: i32) -> HWND {
@@ -742,6 +934,7 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     s.hotkey_previous_area = text(hwnd, ID_HK_PREVIOUS);
     s.hotkey_scrolling = text(hwnd, ID_HK_SCROLLING);
     s.language = LANGUAGE_CHOICES[selection(hwnd, ID_LANGUAGE).min(LANGUAGE_CHOICES.len() - 1)].0;
+    s.theme = THEME_CHOICES[selection(hwnd, ID_THEME).min(THEME_CHOICES.len() - 1)].0;
     let keys = [
         &s.hotkey_area,
         &s.hotkey_window,
@@ -876,6 +1069,7 @@ fn reset(hwnd: HWND) {
     );
     sel(ID_HISTORY_DAYS, history_choice(&d));
     sel(ID_LANGUAGE, 0);
+    sel(ID_THEME, 0);
     sel(
         ID_TIMER,
         TIMER_CHOICES
@@ -894,6 +1088,17 @@ fn close(hwnd: HWND) {
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match msg {
+            WM_ERASEBKGND => {
+                let dc = HDC(wparam.0 as *mut _);
+                let mut rc = RECT::default();
+                let _ = windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rc);
+                WINDOW.with(|w| {
+                    if let Some(w) = w.borrow().as_ref() {
+                        FillRect(dc, &rc, w.bg);
+                    }
+                });
+                LRESULT(1)
+            }
             WM_PAINT => {
                 let mut ps = PAINTSTRUCT::default();
                 let dc = BeginPaint(hwnd, &mut ps);
@@ -905,16 +1110,37 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = EndPaint(hwnd, &ps);
                 LRESULT(0)
             }
-            // Labels and checkboxes on the window's own white.
-            WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => {
+            // Labels and checkboxes on the chrome; a field, the folder's
+            // read-only one included (it asks as a static), on the field
+            // colour.
+            WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
                 let dc = HDC(wparam.0 as *mut _);
-                SetBkMode(dc, TRANSPARENT);
-                SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
-                LRESULT(GetSysColorBrush(COLOR_WINDOW).0 as isize)
+                let ctl = HWND(lparam.0 as *mut _);
+                let is_field = msg == WM_CTLCOLOREDIT
+                    || msg == WM_CTLCOLORLISTBOX
+                    || GetDlgCtrlID(ctl) == ID_FOLDER;
+                WINDOW.with(|w| match w.borrow().as_ref() {
+                    Some(w) => {
+                        SetTextColor(dc, gdi(w.pal.text));
+                        if is_field {
+                            SetBkColor(dc, gdi(w.pal.field));
+                            LRESULT(w.field.0 as isize)
+                        } else {
+                            SetBkMode(dc, TRANSPARENT);
+                            LRESULT(w.bg.0 as isize)
+                        }
+                    }
+                    None => DefWindowProcW(hwnd, msg, wparam, lparam),
+                })
             }
             WM_COMMAND => {
                 let id = (wparam.0 & 0xFFFF) as i32;
+                let code = ((wparam.0 >> 16) & 0xFFFF) as u32;
                 match id {
+                    ID_PNG_LABEL | ID_JPEG_LABEL if code == STN_CLICKED => {
+                        let radio = if id == ID_PNG_LABEL { ID_PNG } else { ID_JPEG };
+                        SendMessageW(item(hwnd, radio), BM_CLICK, None, None);
+                    }
                     ID_FOLDER_PICK => pick_folder(hwnd),
                     ID_HISTORY_OPEN => crate::historywin::open(),
                     ID_RESET => reset(hwnd),
@@ -926,6 +1152,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 }
                 LRESULT(0)
             }
+            // Moved to a monitor at another scale: the window resized, its
+            // controls did not, and the bottom row fell out of sight.
+            WM_DPICHANGED => {
+                let dpi = (wparam.0 & 0xFFFF) as f32;
+                let suggested = *(lparam.0 as *const RECT);
+                rescale(hwnd, dpi / 96.0, suggested);
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 close(hwnd);
                 LRESULT(0)
@@ -935,6 +1169,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 if let Some(w) = state {
                     let _ = DeleteObject(w.font.into());
                     let _ = DeleteObject(w.bold.into());
+                    let _ = DeleteObject(w.bg.into());
+                    let _ = DeleteObject(w.field.into());
                 }
                 // The hotkeys come back, with whatever was saved.
                 agent::reregister_hotkeys();
@@ -949,7 +1185,7 @@ unsafe fn paint_headings(dc: HDC, w: &Window) {
     unsafe {
         let old = SelectObject(dc, w.bold.into());
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
+        SetTextColor(dc, gdi(w.pal.text));
         for (text, x, y) in &w.headings {
             let left = *x;
             let mut t: Vec<u16> = text.encode_utf16().collect();
@@ -969,7 +1205,7 @@ unsafe fn paint_headings(dc: HDC, w: &Window) {
                 right: left + (520.0 * w.s) as i32,
                 bottom: *y + (14.0 * w.s) as i32,
             };
-            let brush = CreateSolidBrush(COLORREF(0x00E5E5E5));
+            let brush = CreateSolidBrush(gdi(w.pal.hairline));
             FillRect(dc, &line, brush);
             let _ = DeleteObject(brush.into());
         }
@@ -1042,30 +1278,36 @@ extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
                 let mut rc = RECT::default();
                 let _ = windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rc);
                 let focused = windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() == hwnd;
-                let bg = CreateSolidBrush(COLORREF(if focused { 0x00FFF4E6 } else { 0x00FFFFFF }));
+                let (font, pal) = WINDOW
+                    .with(|w| w.borrow().as_ref().map(|w| (w.font, w.pal)))
+                    .unwrap_or_else(|| (HFONT::default(), theme::current()));
+                // Focused, the field takes a tenth of the accent.
+                let mut fill = pal.field;
+                if focused {
+                    let mix = |a: f32, b: f32| a * 0.88 + b * 0.12;
+                    fill.r = mix(fill.r, pal.accent.r);
+                    fill.g = mix(fill.g, pal.accent.g);
+                    fill.b = mix(fill.b, pal.accent.b);
+                }
+                let bg = CreateSolidBrush(gdi(fill));
                 FillRect(dc, &rc, bg);
                 let _ = DeleteObject(bg.into());
-                if focused {
-                    let frame = CreateSolidBrush(COLORREF(0x00FF7A0A));
-                    FrameRect(dc, &rc, frame);
-                    let _ = DeleteObject(frame.into());
-                }
-                let font = WINDOW
-                    .with(|w| w.borrow().as_ref().map(|w| w.font))
-                    .unwrap_or_default();
+                let frame = CreateSolidBrush(gdi(if focused { pal.accent } else { pal.hairline }));
+                FrameRect(dc, &rc, frame);
+                let _ = DeleteObject(frame.into());
                 let old = SelectObject(dc, font.into());
                 SetBkMode(dc, TRANSPARENT);
                 let mut buf = [0u16; 128];
                 let n = GetWindowTextW(hwnd, &mut buf) as usize;
                 let shown = if n == 0 {
-                    SetTextColor(dc, COLORREF(GetSysColor(COLOR_GRAYTEXT)));
+                    SetTextColor(dc, gdi(pal.text_dim));
                     if focused {
                         crate::i18n::tr("Pulsa la combinación…", "Press the keys…").to_string()
                     } else {
                         crate::i18n::tr("Sin atajo", "No shortcut").to_string()
                     }
                 } else {
-                    SetTextColor(dc, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
+                    SetTextColor(dc, gdi(pal.text));
                     String::from_utf16_lossy(&buf[..n])
                         .replace("PrintScreen", crate::i18n::tr("Impr Pant", "PrtScn"))
                 };
