@@ -4,25 +4,31 @@
 elige un área y la captura ya está en tu portapapeles, lista para anotar.
 Gratis, sin cuenta, sin publicidad y sin conexión a internet.
 
-![El editor de ScreenShotCM con una captura anotada](https://cmonroyp.github.io/screenshotcm-web/assets/img/es/background.png)
+![El editor de ScreenShotCM con una captura anotada](https://screenshotcm.github.io/assets/img/es/background.png)
 
-**[Descargar para Windows](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi)** ·
-[Sitio web](https://cmonroyp.github.io/screenshotcm-web/) ·
-[Privacidad](https://cmonroyp.github.io/screenshotcm-web/privacy.html) ·
-[Soporte](https://github.com/cmonroyp/screenshotcm-web/issues) ·
+<a href="https://apps.microsoft.com/detail/9P0HHRD6G2QL?mode=direct"><img src="https://get.microsoft.com/images/es%20dark.svg" alt="Obtener en Microsoft Store" width="200"></a>
+
+**[Microsoft Store](https://apps.microsoft.com/detail/9P0HHRD6G2QL)** ·
+[Instalador MSI](https://github.com/screenshotcm/screenshotcm.github.io/releases/latest/download/ScreenShotCM.msi) ·
+[Sitio web](https://screenshotcm.github.io/) ·
+[Privacidad](https://screenshotcm.github.io/privacy.html) ·
+[Soporte](https://github.com/screenshotcm/screenshotcm.github.io/issues) ·
 [English](#english)
 
 ## Instalar
 
-Descarga el instalador y ábrelo. Se instala para tu usuario, sin pedir
-administrador, y queda en la bandeja del sistema, arrancando con Windows. Una
-versión nueva se instala encima de la anterior. Se desinstala desde
-*Configuración → Aplicaciones*; tus capturas y ajustes se conservan.
+**Desde la [Microsoft Store](https://apps.microsoft.com/detail/9P0HHRD6G2QL)** (recomendado): un clic, firmado por
+Microsoft y con actualizaciones automáticas.
 
-El instalador todavía no va firmado: Windows SmartScreen puede avisar al
-abrirlo (*Más información → Ejecutar de todas formas*). Cada versión, en
-[Releases](https://github.com/cmonroyp/screenshotcm-web/releases), publica su
+**O con el instalador MSI**: descárgalo y ábrelo. Se instala para tu usuario,
+sin pedir administrador. El MSI no va firmado: Windows SmartScreen puede avisar
+al abrirlo (*Más información → Ejecutar de todas formas*). Cada versión, en
+[Releases](https://github.com/screenshotcm/screenshotcm.github.io/releases), publica su
 SHA-256 para comprobar que el archivo es el original.
+
+De las dos formas queda en la bandeja del sistema y arranca con Windows. Se
+desinstala desde *Configuración → Aplicaciones*; tus capturas y ajustes se
+conservan.
 
 ## Qué hace
 
@@ -102,7 +108,7 @@ una unidad local de tu equipo.
 ScreenShotCM no se conecta a internet, no tiene telemetría y no escucha en
 ningún puerto. Tus capturas y ajustes se quedan en tu equipo
 (`%LOCALAPPDATA%\ScreenShotCM` y `%APPDATA%\ScreenShotCM`). Ver la
-[política de privacidad](https://cmonroyp.github.io/screenshotcm-web/privacy.html).
+[política de privacidad](https://screenshotcm.github.io/privacy.html).
 
 Si encuentras una vulnerabilidad, repórtala en privado como explica
 [SECURITY.md](SECURITY.md), nunca en un issue público.
@@ -125,10 +131,12 @@ Para compilarlo o contribuir, ver [DEVELOPMENT.md](DEVELOPMENT.md).
 an area, and the capture is already on your clipboard, ready to annotate.
 Free, no account, no ads, no internet connection.
 
-- **[Download for Windows](https://github.com/cmonroyp/screenshotcm-web/releases/latest/download/ScreenShotCM.msi)**
-  — installs for your user, no administrator needed, and starts with Windows.
-  The installer is not signed yet, so SmartScreen may warn you (*More info →
-  Run anyway*); each release publishes its SHA-256.
+- **[Get it from the Microsoft Store](https://apps.microsoft.com/detail/9P0HHRD6G2QL)** (recommended): one click,
+  signed by Microsoft, updated automatically.
+- Or the **[MSI installer](https://github.com/screenshotcm/screenshotcm.github.io/releases/latest/download/ScreenShotCM.msi)**:
+  installs for your user, no administrator needed, and starts with Windows.
+  The MSI is not signed, so SmartScreen may warn you (*More info → Run
+  anyway*); each release publishes its SHA-256.
 - Capture an area, a window or the full screen, or a whole page, chat or
   document by scrolling (by hand or automatically); annotate with curved
   arrows, text, counters, pixelate and more; present it on a gradient; copy,
@@ -136,7 +144,7 @@ Free, no account, no ads, no internet connection.
 - Default shortcuts: Print Screen (area), Shift+Print Screen (window),
   Ctrl+Print Screen (full screen), Alt+Shift+Print Screen (previous area),
   Ctrl+Shift+Print Screen (scrolling capture).
-- Privacy: nothing leaves your PC — [privacy policy](https://cmonroyp.github.io/screenshotcm-web/privacy.html).
+- Privacy: nothing leaves your PC — [privacy policy](https://screenshotcm.github.io/privacy.html).
   Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
 - Licence: [GPL-3.0-or-later](LICENSE); the name and icon are reserved
   ([TRADEMARKS.md](TRADEMARKS.md)). Building: [DEVELOPMENT.md](DEVELOPMENT.md).

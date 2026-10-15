@@ -5,9 +5,9 @@ idiomas que declara el paquete (es-ES y en-US). Los límites entre paréntesis
 son los de Partner Center.
 
 - Política de privacidad (URL obligatoria):
-  <https://cmonroyp.github.io/screenshotcm-web/privacy.html>
-- Sitio web: <https://cmonroyp.github.io/screenshotcm-web/>
-- Contacto de soporte: <https://github.com/cmonroyp/screenshotcm-web/issues>
+  <https://screenshotcm.github.io/privacy.html>
+- Sitio web: <https://screenshotcm.github.io/>
+- Contacto de soporte: <https://github.com/screenshotcm/screenshotcm.github.io/issues>
 - Categoría: *Productividad*. Precio: gratis.
 - Capturas de pantalla: `assets/img/es/*` y `assets/img/en/*` del repositorio
   del sitio (editor, fondo, captura de área, miniatura, fijado, ajustes); la

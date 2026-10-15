@@ -37,7 +37,7 @@ BEGIN
       VALUE "CompanyName", "ScreenShotCM"
       VALUE "FileDescription", "ScreenShotCM - screenshots and annotation"
       VALUE "LegalCopyright", "Copyright (C) 2026 cmonroyp. GPL-3.0-or-later."
-      VALUE "Comments", "Open source: https://github.com/cmonroyp/ScreenShotCM"
+      VALUE "Comments", "Open source: https://github.com/screenshotcm/ScreenShotCM"
       VALUE "FileVersion", "{version}"
       VALUE "InternalName", "screenshotcm"
       VALUE "OriginalFilename", "screenshotcm.exe"

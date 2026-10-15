@@ -572,6 +572,9 @@ struct Gpu {
     target: ID2D1HwndRenderTarget,
     brush: ID2D1SolidColorBrush,
     bitmap: Option<ID2D1Bitmap>,
+    /// The picture reduced to the size it is shown at (`shown_size`), by
+    /// WIC, and drawn one pixel for one.
+    shown: Option<((u32, u32), ID2D1Bitmap)>,
     dashed: ID2D1StrokeStyle,
     round: ID2D1StrokeStyle,
     ui: IDWriteTextFormat,
@@ -952,6 +955,21 @@ impl Editor {
         let z = self.z();
         let margin = 24.0 * self.s;
         pan_limit(c.w, w * z, margin) > 0.0 || pan_limit(c.h, h * z, margin) > 0.0
+    }
+
+    /// The size, in screen pixels, a picture shown smaller than its own
+    /// pixels is drawn at; `None` from 100 % up, where the bitmap itself is
+    /// drawn. Direct2D's linear filter reads four pixels for each one it
+    /// writes, so a reduction drops the rest: text came out uneven, some
+    /// strokes thick and others faint, while the file itself was sharp.
+    fn shown_size(&self) -> Option<(u32, u32)> {
+        let z = self.z();
+        (z < 1.0).then(|| {
+            (
+                ((self.effective.width as f32 * z).round() as u32).max(1),
+                ((self.effective.height as f32 * z).round() as u32).max(1),
+            )
+        })
     }
 
     /// Where content (0, 0) lands in the window.
@@ -2124,6 +2142,7 @@ impl Editor {
                 target,
                 brush,
                 bitmap: None,
+                shown: None,
                 dashed,
                 round,
                 ui,
@@ -2146,9 +2165,23 @@ impl Editor {
         if !self.ensure_gpu() {
             return;
         }
+        let want = self.shown_size();
         let g = self.gpu.as_mut().unwrap();
         if g.bitmap.is_none() {
             g.bitmap = gfx::bitmap(&g.target, &self.effective).ok();
+            g.shown = None;
+        }
+        match want {
+            Some(size) if g.shown.as_ref().is_none_or(|(s, _)| *s != size) => {
+                g.shown = self
+                    .effective
+                    .resized(size.0, size.1)
+                    .and_then(|small| gfx::bitmap(&g.target, &small))
+                    .ok()
+                    .map(|b| (size, b));
+            }
+            None => g.shown = None,
+            _ => {}
         }
         let g = self.gpu.as_ref().unwrap();
         let t: &ID2D1RenderTarget = &g.target;
@@ -2195,11 +2228,11 @@ impl Editor {
                         bg.shadow,
                         (pad * 0.35).max(6.0) * z,
                     );
-                    self.paint_image(t, bitmap, img, bg.radius * z);
+                    self.paint_image(t, g, bitmap, img, bg.radius * z);
                 }
                 None => {
                     background::shadow(t, &g.brush, content, 0.0, 0.5, 14.0 * self.s);
-                    self.paint_image(t, bitmap, content, 0.0);
+                    self.paint_image(t, g, bitmap, content, 0.0);
                 }
             }
 
@@ -2238,15 +2271,34 @@ impl Editor {
     unsafe fn paint_image(
         &self,
         t: &ID2D1RenderTarget,
+        g: &Gpu,
         bitmap: &ID2D1Bitmap,
         r: D2D_RECT_F,
         radius: f32,
     ) {
-        let z = self.z();
-        let interp = if z >= 2.0 {
-            D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR
-        } else {
-            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
+        // Reduced: the WIC reduction, one pixel for one, on whole pixels.
+        let (bitmap, r, z, interp) = match &g.shown {
+            Some(((w, h), small)) => (
+                small,
+                rectf(r.left.round(), r.top.round(), *w as f32, *h as f32),
+                1.0,
+                D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            ),
+            None => {
+                // Enlarged: whole pixels only where each becomes the same
+                // number of screen pixels (200 %, 300 %…) or so large that
+                // one more hardly shows (from 400 %). At 244 % nearest made
+                // some columns two pixels wide and others three, and text
+                // came out uneven; smoothed, as photo viewers do, it is even.
+                let z = self.z();
+                let whole = (z - z.round()).abs() < 0.001;
+                let interp = if z >= 4.0 || (z >= 2.0 && whole) {
+                    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+                } else {
+                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
+                };
+                (bitmap, r, z, interp)
+            }
         };
         unsafe {
             if radius <= 0.5 {

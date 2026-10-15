@@ -163,8 +163,9 @@ impl Image {
         }
     }
 
-    /// A copy scaled to `w`×`h` by WIC: Fant when shrinking, which averages
-    /// every pixel it drops, and high-quality cubic when enlarging.
+    /// A copy scaled to `w`×`h` by WIC's high-quality cubic, both ways: it
+    /// takes every pixel into account when shrinking, as Fant did, and keeps
+    /// text edges crisper than Fant's averaging.
     pub fn resized(&self, w: u32, h: u32) -> windows::core::Result<Image> {
         if !within_bounds(w, h) {
             return Err(windows::core::Error::new(
@@ -184,13 +185,8 @@ impl Image {
                 self.stride() as u32,
                 &self.pixels,
             )?;
-            let mode = if w < self.width {
-                WICBitmapInterpolationModeFant
-            } else {
-                WICBitmapInterpolationModeHighQualityCubic
-            };
             let scaler = factory.CreateBitmapScaler()?;
-            scaler.Initialize(&source, w, h, mode)?;
+            scaler.Initialize(&source, w, h, WICBitmapInterpolationModeHighQualityCubic)?;
             let mut pixels = vec![0u8; w as usize * h as usize * 4];
             scaler.CopyPixels(std::ptr::null(), w * 4, &mut pixels)?;
             Ok(Image {
