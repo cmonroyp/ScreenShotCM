@@ -4,6 +4,7 @@
 //! which is why the global hotkeys are released while the window is open.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -25,10 +26,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON,
     BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, CW_USEDEFAULT,
     CreateWindowExW, DLGC_WANTALLKEYS, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, ES_NUMBER,
-    ES_READONLY, EnumChildWindows, GetClassNameW, GetDlgCtrlID, GetParent, GetWindowTextW, HMENU,
-    IDC_ARROW, IsIconic, LoadCursorW, MB_ICONWARNING, MB_OK, MessageBoxW, RegisterClassExW,
-    STN_CLICKED, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
+    EnumChildWindows, GetClassNameW, GetDlgCtrlID, GetParent, GetWindowTextW, HMENU, IDC_ARROW,
+    IsIconic, LoadCursorW, MB_ICONWARNING, MB_OK, MessageBoxW, RegisterClassExW, STN_CLICKED,
+    SW_RESTORE, SW_SHOW, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowPos,
+    SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
     WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
     WM_DPICHANGED, WM_ERASEBKGND, WM_GETDLGCODE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
     WM_LBUTTONDOWN, WM_PAINT, WM_SETFOCUS, WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW,
@@ -442,10 +443,12 @@ fn create() -> Result<(), String> {
 
         heading(crate::i18n::tr("Archivos", "Files"), left, &mut y);
         label(crate::i18n::tr("Carpeta:", "Folder:"), left, y, px(80.0));
+        // Typed or pasted as well as picked: a path copied from Explorer is
+        // the quickest way to a folder, and a read-only field looked broken.
         let folder = ctl(
             w!("EDIT"),
             &settings.save_dir.to_string_lossy(),
-            ES_AUTOHSCROLL as u32 | ES_READONLY as u32 | WS_BORDER.0,
+            ES_AUTOHSCROLL as u32 | WS_BORDER.0 | WS_TABSTOP.0,
             left + px(90.0),
             y,
             px(320.0),
@@ -905,7 +908,7 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
     s.save_after_capture = checked(hwnd, ID_SAVE);
     s.overlay_close_seconds =
         CLOSE_CHOICES[selection(hwnd, ID_CLOSE_AFTER).min(CLOSE_CHOICES.len() - 1)].0;
-    s.save_dir = text(hwnd, ID_FOLDER).into();
+    s.save_dir = save_dir(&text(hwnd, ID_FOLDER))?;
     s.image_format = if checked(hwnd, ID_JPEG) {
         ImageFormat::Jpeg
     } else {
@@ -958,6 +961,35 @@ fn read(hwnd: HWND) -> Result<Settings, String> {
         seen.push((chord, a));
     }
     Ok(s)
+}
+
+/// A typed folder: a whole path on a drive of this PC (a share can vanish
+/// and leave captures nowhere, and a relative path would depend on where
+/// the agent happened to start), created if it is not there yet.
+fn save_dir(typed: &str) -> Result<PathBuf, String> {
+    let dir = PathBuf::from(typed.trim().trim_matches('"'));
+    let on_drive = matches!(
+        dir.components().next(),
+        Some(std::path::Component::Prefix(p))
+            if matches!(p.kind(), std::path::Prefix::Disk(_))
+    );
+    if !on_drive || !dir.is_absolute() {
+        return Err(crate::i18n::trs(
+            format!(
+                "«{typed}» no es una carpeta de este equipo. Escribe una ruta completa, como C:\\Capturas, o elige una con «Cambiar…»."
+            ),
+            format!(
+                "«{typed}» is not a folder on this PC. Type a full path, such as C:\\Screenshots, or pick one with «Change…»."
+            ),
+        ));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        crate::i18n::trs(
+            format!("No se pudo usar la carpeta «{}»: {e}", dir.display()),
+            format!("Could not use the folder «{}»: {e}", dir.display()),
+        )
+    })?;
+    Ok(dir)
 }
 
 fn apply(hwnd: HWND) -> bool {
@@ -1110,8 +1142,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = EndPaint(hwnd, &ps);
                 LRESULT(0)
             }
-            // Labels and checkboxes on the chrome; a field, the folder's
-            // read-only one included (it asks as a static), on the field
+            // Labels and checkboxes on the chrome; a field on the field
             // colour.
             WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
                 let dc = HDC(wparam.0 as *mut _);

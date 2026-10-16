@@ -85,8 +85,8 @@ portapapeles, editor de imágenes, productividad
 
 **Novedades de esta versión**:
 
-> Imagen más nítida en el editor: reducida para caber en la ventana, el texto
-> ya no sale desigual, y al acercar se ve uniforme en lugar de escalonado.
+> La carpeta de capturas por defecto queda en tu equipo, ya no en OneDrive, y
+> en Ajustes se puede escribir o pegar la ruta. Imagen más nítida en el editor.
 
 ---
 
@@ -155,5 +155,5 @@ image editor, productivity
 
 **What's new in this version**:
 
-> A sharper picture in the editor: reduced to fit the window, text no longer
-> comes out uneven, and zoomed in it looks even instead of jagged.
+> The default captures folder stays on your PC, no longer in OneDrive, and the
+> folder can be typed or pasted in Settings. A sharper picture in the editor.

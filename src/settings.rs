@@ -3,7 +3,7 @@
 //! stopping the agent; an unknown key is kept out of the way, not an error.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::background::{Background, COLORS, Fill, GRADIENTS};
 use crate::paths;
@@ -156,7 +156,9 @@ impl Settings {
             };
             let (k, v) = (k.trim(), v.trim());
             match k {
-                "save_dir" if !v.is_empty() => s.save_dir = PathBuf::from(v),
+                "save_dir" if !v.is_empty() && !paths::is_synced_default(Path::new(v)) => {
+                    s.save_dir = PathBuf::from(v)
+                }
                 "copy_after_capture" => set(&mut s.copy_after_capture, parse_bool(v)),
                 "save_after_capture" => set(&mut s.save_after_capture, parse_bool(v)),
                 "show_overlay" => set(&mut s.show_overlay, parse_bool(v)),
